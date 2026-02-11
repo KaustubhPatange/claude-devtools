@@ -3,23 +3,30 @@
  */
 
 import { createLogger } from '@shared/utils/logger';
-import * as fs from 'fs';
 import * as readline from 'readline';
 
+import { LocalFileSystemProvider } from '../services/infrastructure/LocalFileSystemProvider';
 import { type ChatHistoryEntry } from '../types';
 
+import type { FileSystemProvider } from '../services/infrastructure/FileSystemProvider';
+
 const logger = createLogger('Util:metadataExtraction');
+
+const defaultProvider = new LocalFileSystemProvider();
 
 /**
  * Extract CWD (current working directory) from the first entry.
  * Used to get the actual project path from encoded directory names.
  */
-export async function extractCwd(filePath: string): Promise<string | null> {
-  if (!fs.existsSync(filePath)) {
+export async function extractCwd(
+  filePath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<string | null> {
+  if (!(await fsProvider.exists(filePath))) {
     return null;
   }
 
-  const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
+  const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
   const rl = readline.createInterface({
     input: fileStream,
     crlfDelay: Infinity,

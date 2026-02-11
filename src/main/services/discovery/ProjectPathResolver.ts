@@ -9,13 +9,15 @@
  * Results are memoized per projectId and can be invalidated by file watcher events.
  */
 
+import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFileSystemProvider';
 import { extractCwd } from '@main/utils/jsonl';
 import { decodePath, extractBaseDir, getProjectsBasePath } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
-import * as fs from 'fs';
 import * as path from 'path';
 
 import { subprojectRegistry } from './SubprojectRegistry';
+
+import type { FileSystemProvider } from '@main/services/infrastructure/FileSystemProvider';
 
 const logger = createLogger('Discovery:ProjectPathResolver');
 
@@ -27,10 +29,12 @@ interface ResolveProjectPathOptions {
 
 export class ProjectPathResolver {
   private readonly projectsDir: string;
+  private readonly fsProvider: FileSystemProvider;
   private readonly projectPathCache = new Map<string, string>();
 
-  constructor(projectsDir?: string) {
+  constructor(projectsDir?: string, fsProvider?: FileSystemProvider) {
     this.projectsDir = projectsDir ?? getProjectsBasePath();
+    this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
   }
 
   /**
@@ -64,7 +68,7 @@ export class ProjectPathResolver {
 
     const sessionPaths = opts.sessionPaths?.length
       ? opts.sessionPaths
-      : this.listSessionPaths(projectId);
+      : await this.listSessionPaths(projectId);
 
     for (const sessionPath of sessionPaths) {
       try {
@@ -97,14 +101,14 @@ export class ProjectPathResolver {
     this.projectPathCache.clear();
   }
 
-  private listSessionPaths(projectId: string): string[] {
+  private async listSessionPaths(projectId: string): Promise<string[]> {
     const projectDir = path.join(this.projectsDir, extractBaseDir(projectId));
-    if (!fs.existsSync(projectDir)) {
+    if (!(await this.fsProvider.exists(projectDir))) {
       return [];
     }
 
     try {
-      const entries = fs.readdirSync(projectDir, { withFileTypes: true });
+      const entries = await this.fsProvider.readdir(projectDir);
       return entries
         .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
         .map((entry) => path.join(projectDir, entry.name));

@@ -12,10 +12,15 @@ import { encodePath } from '@main/utils/pathDecoder';
 import { countTokens } from '@main/utils/tokenizer';
 import { createLogger } from '@shared/utils/logger';
 import { app } from 'electron';
-import * as fs from 'fs';
 import * as path from 'path';
 
+import { LocalFileSystemProvider } from '../infrastructure/LocalFileSystemProvider';
+
+import type { FileSystemProvider } from '../infrastructure/FileSystemProvider';
+
 const logger = createLogger('Service:ClaudeMdReader');
+
+const defaultProvider = new LocalFileSystemProvider();
 
 // ===========================================================================
 // Types
@@ -56,13 +61,17 @@ function expandTilde(filePath: string): string {
 /**
  * Reads a single CLAUDE.md file and returns its info.
  * @param filePath - Path to the CLAUDE.md file (supports ~ expansion)
+ * @param fsProvider - Optional filesystem provider (defaults to local)
  * @returns ClaudeMdFileInfo with file details
  */
-function readClaudeMdFile(filePath: string): ClaudeMdFileInfo {
+async function readClaudeMdFile(
+  filePath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<ClaudeMdFileInfo> {
   const expandedPath = expandTilde(filePath);
 
   try {
-    if (!fs.existsSync(expandedPath)) {
+    if (!(await fsProvider.exists(expandedPath))) {
       return {
         path: expandedPath,
         exists: false,
@@ -71,7 +80,7 @@ function readClaudeMdFile(filePath: string): ClaudeMdFileInfo {
       };
     }
 
-    const content = fs.readFileSync(expandedPath, 'utf8');
+    const content = await fsProvider.readFile(expandedPath);
     const charCount = content.length;
     const estimatedTokens = countTokens(content);
 
@@ -97,13 +106,17 @@ function readClaudeMdFile(filePath: string): ClaudeMdFileInfo {
  * Reads all .md files in a directory and returns combined info.
  * Used for project rules directory.
  * @param dirPath - Path to the directory (supports ~ expansion)
+ * @param fsProvider - Optional filesystem provider (defaults to local)
  * @returns ClaudeMdFileInfo with combined stats from all .md files
  */
-function readDirectoryMdFiles(dirPath: string): ClaudeMdFileInfo {
+async function readDirectoryMdFiles(
+  dirPath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<ClaudeMdFileInfo> {
   const expandedPath = expandTilde(dirPath);
 
   try {
-    if (!fs.existsSync(expandedPath)) {
+    if (!(await fsProvider.exists(expandedPath))) {
       return {
         path: expandedPath,
         exists: false,
@@ -112,7 +125,7 @@ function readDirectoryMdFiles(dirPath: string): ClaudeMdFileInfo {
       };
     }
 
-    const stats = fs.statSync(expandedPath);
+    const stats = await fsProvider.stat(expandedPath);
     if (!stats.isDirectory()) {
       return {
         path: expandedPath,
@@ -122,7 +135,7 @@ function readDirectoryMdFiles(dirPath: string): ClaudeMdFileInfo {
       };
     }
 
-    const mdFiles = collectMdFiles(expandedPath);
+    const mdFiles = await collectMdFiles(expandedPath, fsProvider);
 
     if (mdFiles.length === 0) {
       return {
@@ -138,7 +151,7 @@ function readDirectoryMdFiles(dirPath: string): ClaudeMdFileInfo {
 
     for (const filePath of mdFiles) {
       try {
-        const content = fs.readFileSync(filePath, 'utf8');
+        const content = await fsProvider.readFile(filePath);
         totalCharCount += content.length;
         allContent.push(content);
       } catch {
@@ -170,18 +183,20 @@ function readDirectoryMdFiles(dirPath: string): ClaudeMdFileInfo {
 /**
  * Recursively collect all .md files in a directory tree.
  */
-function collectMdFiles(dir: string): string[] {
+async function collectMdFiles(
+  dir: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<string[]> {
   const mdFiles: string[] = [];
   try {
-    const entries = fs.readdirSync(dir);
+    const entries = await fsProvider.readdir(dir);
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry);
+      const fullPath = path.join(dir, entry.name);
       try {
-        const stats = fs.statSync(fullPath);
-        if (stats.isFile() && entry.endsWith('.md')) {
+        if (entry.isFile() && entry.name.endsWith('.md')) {
           mdFiles.push(fullPath);
-        } else if (stats.isDirectory()) {
-          mdFiles.push(...collectMdFiles(fullPath));
+        } else if (entry.isDirectory()) {
+          mdFiles.push(...(await collectMdFiles(fullPath, fsProvider)));
         }
       } catch {
         continue;
@@ -211,18 +226,21 @@ function getEnterprisePath(): string {
  * Reads auto memory MEMORY.md file for a project.
  * Only reads the first 200 lines, matching Claude Code behavior.
  */
-function readAutoMemoryFile(projectRoot: string): ClaudeMdFileInfo {
+async function readAutoMemoryFile(
+  projectRoot: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<ClaudeMdFileInfo> {
   const expandedRoot = expandTilde(projectRoot);
   const encoded = encodePath(expandedRoot);
   const homeDir = app.getPath('home');
   const memoryPath = path.join(homeDir, '.claude', 'projects', encoded, 'memory', 'MEMORY.md');
 
   try {
-    if (!fs.existsSync(memoryPath)) {
+    if (!(await fsProvider.exists(memoryPath))) {
       return { path: memoryPath, exists: false, charCount: 0, estimatedTokens: 0 };
     }
 
-    const content = fs.readFileSync(memoryPath, 'utf8');
+    const content = await fsProvider.readFile(memoryPath);
     // Only first 200 lines, matching Claude Code behavior
     const lines = content.split('\n');
     const truncated = lines.slice(0, 200).join('\n');
@@ -239,43 +257,47 @@ function readAutoMemoryFile(projectRoot: string): ClaudeMdFileInfo {
 /**
  * Reads all potential CLAUDE.md locations for a project.
  * @param projectRoot - The root directory of the project
+ * @param fsProvider - Optional filesystem provider (defaults to local)
  * @returns ClaudeMdReadResult with Map of path -> ClaudeMdFileInfo
  */
-export function readAllClaudeMdFiles(projectRoot: string): ClaudeMdReadResult {
+export async function readAllClaudeMdFiles(
+  projectRoot: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<ClaudeMdReadResult> {
   const files = new Map<string, ClaudeMdFileInfo>();
   const expandedProjectRoot = expandTilde(projectRoot);
 
   // 1. Enterprise CLAUDE.md (platform-specific path)
   const enterprisePath = getEnterprisePath();
-  files.set('enterprise', readClaudeMdFile(enterprisePath));
+  files.set('enterprise', await readClaudeMdFile(enterprisePath, fsProvider));
 
   // 2. User memory: ~/.claude/CLAUDE.md
   const userMemoryPath = '~/.claude/CLAUDE.md';
-  files.set('user', readClaudeMdFile(userMemoryPath));
+  files.set('user', await readClaudeMdFile(userMemoryPath, fsProvider));
 
   // 3. Project memory: ${projectRoot}/CLAUDE.md
   const projectMemoryPath = path.join(expandedProjectRoot, 'CLAUDE.md');
-  files.set('project', readClaudeMdFile(projectMemoryPath));
+  files.set('project', await readClaudeMdFile(projectMemoryPath, fsProvider));
 
   // 4. Project memory alt: ${projectRoot}/.claude/CLAUDE.md
   const projectMemoryAltPath = path.join(expandedProjectRoot, '.claude', 'CLAUDE.md');
-  files.set('project-alt', readClaudeMdFile(projectMemoryAltPath));
+  files.set('project-alt', await readClaudeMdFile(projectMemoryAltPath, fsProvider));
 
   // 5. Project rules: ${projectRoot}/.claude/rules/*.md
   const projectRulesPath = path.join(expandedProjectRoot, '.claude', 'rules');
-  files.set('project-rules', readDirectoryMdFiles(projectRulesPath));
+  files.set('project-rules', await readDirectoryMdFiles(projectRulesPath, fsProvider));
 
   // 6. Project local: ${projectRoot}/CLAUDE.local.md
   const projectLocalPath = path.join(expandedProjectRoot, 'CLAUDE.local.md');
-  files.set('project-local', readClaudeMdFile(projectLocalPath));
+  files.set('project-local', await readClaudeMdFile(projectLocalPath, fsProvider));
 
   // 7. User rules: ~/.claude/rules/**/*.md
   const homeDir = app.getPath('home');
   const userRulesPath = path.join(homeDir, '.claude', 'rules');
-  files.set('user-rules', readDirectoryMdFiles(userRulesPath));
+  files.set('user-rules', await readDirectoryMdFiles(userRulesPath, fsProvider));
 
   // 8. Auto memory: ~/.claude/projects/<encoded>/memory/MEMORY.md
-  files.set('auto-memory', readAutoMemoryFile(projectRoot));
+  files.set('auto-memory', await readAutoMemoryFile(projectRoot, fsProvider));
 
   return { files };
 }
@@ -284,10 +306,14 @@ export function readAllClaudeMdFiles(projectRoot: string): ClaudeMdReadResult {
  * Reads a specific directory's CLAUDE.md file.
  * Used for directory-specific CLAUDE.md detected from file reads.
  * @param dirPath - Path to the directory (supports ~ expansion)
+ * @param fsProvider - Optional filesystem provider (defaults to local)
  * @returns ClaudeMdFileInfo for the CLAUDE.md file in that directory
  */
-export function readDirectoryClaudeMd(dirPath: string): ClaudeMdFileInfo {
+export async function readDirectoryClaudeMd(
+  dirPath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<ClaudeMdFileInfo> {
   const expandedDirPath = expandTilde(dirPath);
   const claudeMdPath = path.join(expandedDirPath, 'CLAUDE.md');
-  return readClaudeMdFile(claudeMdPath);
+  return readClaudeMdFile(claudeMdPath, fsProvider);
 }

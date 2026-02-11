@@ -21,12 +21,16 @@
  * - synthetic assistant messages (model='<synthetic>')
  */
 
+import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFileSystemProvider';
 import { type ChatHistoryEntry, type ContentBlock } from '@main/types';
 import { createLogger } from '@shared/utils/logger';
-import * as fs from 'fs';
 import * as readline from 'readline';
 
+import type { FileSystemProvider } from '@main/services/infrastructure/FileSystemProvider';
+
 const logger = createLogger('Service:SessionContentFilter');
+
+const defaultProvider = new LocalFileSystemProvider();
 
 /**
  * Hard noise tags - user messages with ONLY these tags are filtered out.
@@ -54,12 +58,15 @@ export class SessionContentFilter {
    * @param filePath - Path to the session JSONL file
    * @returns Promise resolving to true if session has displayable content
    */
-  static async hasNonNoiseMessages(filePath: string): Promise<boolean> {
-    if (!fs.existsSync(filePath)) {
+  static async hasNonNoiseMessages(
+    filePath: string,
+    fsProvider: FileSystemProvider = defaultProvider
+  ): Promise<boolean> {
+    if (!(await fsProvider.exists(filePath))) {
       return false;
     }
 
-    const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
+    const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
     const rl = readline.createInterface({
       input: fileStream,
       crlfDelay: Infinity,

@@ -17,19 +17,24 @@ import {
 import { extractBaseDir } from '@main/utils/pathDecoder';
 import * as path from 'path';
 
+import { LocalFileSystemProvider } from '../infrastructure/LocalFileSystemProvider';
 import { gitIdentityResolver } from '../parsing/GitIdentityResolver';
 
 import { SessionContentFilter } from './SessionContentFilter';
 import { subprojectRegistry } from './SubprojectRegistry';
+
+import type { FileSystemProvider } from '../infrastructure/FileSystemProvider';
 
 /**
  * WorktreeGrouper provides methods for grouping projects by git repository.
  */
 export class WorktreeGrouper {
   private readonly projectsDir: string;
+  private readonly fsProvider: FileSystemProvider;
 
-  constructor(projectsDir: string) {
+  constructor(projectsDir: string, fsProvider?: FileSystemProvider) {
     this.projectsDir = projectsDir;
+    this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
   }
 
   /**
@@ -79,7 +84,7 @@ export class WorktreeGrouper {
             continue;
           }
           const sessionPath = path.join(projectPath, `${sessionId}.jsonl`);
-          if (await SessionContentFilter.hasNonNoiseMessages(sessionPath)) {
+          if (await SessionContentFilter.hasNonNoiseMessages(sessionPath, this.fsProvider)) {
             filteredSessions.push(sessionId);
           }
         }

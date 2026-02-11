@@ -23,7 +23,10 @@ import { errorDetector } from '../error/ErrorDetector';
 
 import { ConfigManager } from './ConfigManager';
 import { type DataCache } from './DataCache';
+import { LocalFileSystemProvider } from './LocalFileSystemProvider';
 import { type NotificationManager } from './NotificationManager';
+
+import type { FileSystemProvider } from './FileSystemProvider';
 
 const logger = createLogger('Service:FileWatcher');
 
@@ -55,6 +58,7 @@ export class FileWatcher extends EventEmitter {
   private projectsPath: string;
   private todosPath: string;
   private dataCache: DataCache;
+  private fsProvider: FileSystemProvider;
   private notificationManager: NotificationManager | null = null;
   private isWatching: boolean = false;
   private debounceTimers = new Map<string, NodeJS.Timeout>();
@@ -66,16 +70,28 @@ export class FileWatcher extends EventEmitter {
   private activeSessionFiles = new Map<string, ActiveSessionFile>();
   /** Timer for periodic catch-up scan */
   private catchUpTimer: NodeJS.Timeout | null = null;
+  /** Timer for SSH polling mode (replaces fs.watch) */
+  private pollingTimer: NodeJS.Timeout | null = null;
+  /** Polling interval for SSH mode */
+  private static readonly SSH_POLL_INTERVAL_MS = 5000;
+  /** Track file sizes for SSH polling change detection */
+  private polledFileSizes = new Map<string, number>();
   /** Files currently being processed (concurrency guard) */
   private processingInProgress = new Set<string>();
   /** Files that need reprocessing after current processing completes */
   private pendingReprocess = new Set<string>();
 
-  constructor(dataCache: DataCache, projectsPath?: string, todosPath?: string) {
+  constructor(
+    dataCache: DataCache,
+    projectsPath?: string,
+    todosPath?: string,
+    fsProvider?: FileSystemProvider
+  ) {
     super();
     this.projectsPath = projectsPath ?? getProjectsBasePath();
     this.todosPath = todosPath ?? getTodosBasePath();
     this.dataCache = dataCache;
+    this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
   }
 
   /**
@@ -84,6 +100,13 @@ export class FileWatcher extends EventEmitter {
    */
   setNotificationManager(manager: NotificationManager): void {
     this.notificationManager = manager;
+  }
+
+  /**
+   * Sets the filesystem provider. Used when switching between local and SSH modes.
+   */
+  setFileSystemProvider(provider: FileSystemProvider): void {
+    this.fsProvider = provider;
   }
 
   // ===========================================================================
@@ -100,7 +123,11 @@ export class FileWatcher extends EventEmitter {
     }
 
     this.isWatching = true;
-    this.ensureWatchers();
+    if (this.fsProvider.type === 'ssh') {
+      this.startPollingMode();
+    } else {
+      this.ensureWatchers();
+    }
     this.startCatchUpTimer();
   }
 
@@ -136,6 +163,13 @@ export class FileWatcher extends EventEmitter {
       clearInterval(this.catchUpTimer);
       this.catchUpTimer = null;
     }
+
+    // Clear SSH polling timer
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer);
+      this.pollingTimer = null;
+    }
+    this.polledFileSizes.clear();
 
     // Clear error detection tracking
     this.lastProcessedLineCount.clear();
@@ -212,7 +246,7 @@ export class FileWatcher extends EventEmitter {
   }
 
   private ensureWatchers(): void {
-    if (!this.isWatching) {
+    if (!this.isWatching || this.fsProvider.type === 'ssh') {
       return;
     }
 
@@ -260,6 +294,70 @@ export class FileWatcher extends EventEmitter {
   }
 
   // ===========================================================================
+  // SSH Polling Mode
+  // ===========================================================================
+
+  /**
+   * Starts polling mode for SSH connections.
+   * Polls the projects directory for file changes instead of using fs.watch().
+   */
+  private startPollingMode(): void {
+    if (this.pollingTimer) return;
+
+    logger.info('FileWatcher: Starting SSH polling mode');
+    this.pollingTimer = setInterval(() => {
+      this.pollForChanges().catch((err) => {
+        logger.error('Error during SSH polling:', err);
+      });
+    }, FileWatcher.SSH_POLL_INTERVAL_MS);
+  }
+
+  /**
+   * Polls the projects directory for file changes in SSH mode.
+   */
+  private async pollForChanges(): Promise<void> {
+    try {
+      if (!(await this.fsProvider.exists(this.projectsPath))) return;
+
+      const projectDirs = await this.fsProvider.readdir(this.projectsPath);
+      for (const dir of projectDirs) {
+        if (!dir.isDirectory()) continue;
+
+        const projectPath = path.join(this.projectsPath, dir.name);
+        let entries: import('./FileSystemProvider').FsDirent[];
+        try {
+          entries = await this.fsProvider.readdir(projectPath);
+        } catch {
+          continue;
+        }
+
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+
+          const fullPath = path.join(projectPath, entry.name);
+          try {
+            const stats = await this.fsProvider.stat(fullPath);
+            const lastSize = this.polledFileSizes.get(fullPath);
+
+            if (lastSize === undefined) {
+              // First time seeing this file
+              this.polledFileSizes.set(fullPath, stats.size);
+            } else if (stats.size !== lastSize) {
+              // File changed
+              this.polledFileSizes.set(fullPath, stats.size);
+              this.handleProjectsChange('change', path.join(dir.name, entry.name));
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('Error polling for changes:', err);
+    }
+  }
+
+  // ===========================================================================
   // Event Handling
   // ===========================================================================
 
@@ -283,14 +381,14 @@ export class FileWatcher extends EventEmitter {
   /**
    * Process a debounced projects change.
    */
-  private processProjectsChange(eventType: string, filename: string): void {
+  private async processProjectsChange(eventType: string, filename: string): Promise<void> {
     const parts = filename.split(path.sep);
     const projectId = parts[0];
 
     if (!projectId) return;
 
     const fullPath = path.join(this.projectsPath, filename);
-    const fileExists = fs.existsSync(fullPath);
+    const fileExists = await this.fsProvider.exists(fullPath);
 
     // Determine change type
     let changeType: FileChangeEvent['type'];
@@ -390,7 +488,7 @@ export class FileWatcher extends EventEmitter {
       // Get the last processed line count for this file
       const lastLineCount = this.lastProcessedLineCount.get(filePath) ?? 0;
       const lastSize = this.lastProcessedSize.get(filePath) ?? 0;
-      const fileStats = await fs.promises.stat(filePath);
+      const fileStats = await this.fsProvider.stat(filePath);
       const currentSize = fileStats.size;
 
       // Fast path: no size change means no new data
@@ -414,7 +512,7 @@ export class FileWatcher extends EventEmitter {
         currentLineCount = messages.length;
         newMessages = messages.slice(lastLineCount);
         // Re-stat after full parse to capture bytes written during the parse
-        const postParseStats = await fs.promises.stat(filePath);
+        const postParseStats = await this.fsProvider.stat(filePath);
         processedSize = postParseStats.size;
       }
 
@@ -492,7 +590,10 @@ export class FileWatcher extends EventEmitter {
     startOffset: number
   ): Promise<AppendedParseResult> {
     const parsedMessages: ParsedMessage[] = [];
-    const stream = fs.createReadStream(filePath, { start: startOffset, encoding: 'utf8' });
+    const stream = this.fsProvider.createReadStream(filePath, {
+      start: startOffset,
+      encoding: 'utf8',
+    });
 
     let buffer = '';
     let consumedBytes = 0;
@@ -561,11 +662,11 @@ export class FileWatcher extends EventEmitter {
   /**
    * Process a debounced todos change.
    */
-  private processTodosChange(eventType: string, filename: string): void {
+  private async processTodosChange(eventType: string, filename: string): Promise<void> {
     // Session ID is the filename without extension
     const sessionId = path.basename(filename, '.json');
     const fullPath = path.join(this.todosPath, filename);
-    const fileExists = fs.existsSync(fullPath);
+    const fileExists = await this.fsProvider.exists(fullPath);
 
     // Determine change type
     let changeType: FileChangeEvent['type'];
@@ -621,7 +722,7 @@ export class FileWatcher extends EventEmitter {
 
     for (const [filePath, info] of this.activeSessionFiles) {
       try {
-        const stats = await fs.promises.stat(filePath);
+        const stats = await this.fsProvider.stat(filePath);
 
         // Skip files not modified recently
         if (now - stats.mtimeMs > CATCH_UP_MAX_AGE_MS) {

@@ -1,0 +1,308 @@
+/**
+ * ConnectionSection - Settings section for SSH connection management.
+ *
+ * Provides UI for:
+ * - Toggling between local and SSH modes
+ * - Configuring SSH connection (host, port, username, auth)
+ * - Testing and connecting to remote hosts
+ */
+
+import { useState } from 'react';
+
+import { useStore } from '@renderer/store';
+import { Loader2, Monitor, Wifi, WifiOff } from 'lucide-react';
+
+import { SettingRow } from '../components/SettingRow';
+import { SettingsSectionHeader } from '../components/SettingsSectionHeader';
+
+import type { SshAuthMethod, SshConnectionConfig } from '@shared/types';
+
+export const ConnectionSection = (): React.JSX.Element => {
+  const connectionState = useStore((s) => s.connectionState);
+  const connectedHost = useStore((s) => s.connectedHost);
+  const connectionError = useStore((s) => s.connectionError);
+  const connectSsh = useStore((s) => s.connectSsh);
+  const disconnectSsh = useStore((s) => s.disconnectSsh);
+  const testConnection = useStore((s) => s.testConnection);
+
+  // Form state
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('22');
+  const [username, setUsername] = useState('');
+  const [authMethod, setAuthMethod] = useState<SshAuthMethod>('agent');
+  const [password, setPassword] = useState('');
+  const [privateKeyPath, setPrivateKeyPath] = useState('~/.ssh/id_rsa');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+
+  const buildConfig = (): SshConnectionConfig => ({
+    host,
+    port: parseInt(port, 10) || 22,
+    username,
+    authMethod,
+    password: authMethod === 'password' ? password : undefined,
+    privateKeyPath: authMethod === 'privateKey' ? privateKeyPath : undefined,
+  });
+
+  const handleTest = async (): Promise<void> => {
+    setTesting(true);
+    setTestResult(null);
+    const result = await testConnection(buildConfig());
+    setTestResult(result);
+    setTesting(false);
+  };
+
+  const handleConnect = async (): Promise<void> => {
+    await connectSsh(buildConfig());
+  };
+
+  const handleDisconnect = async (): Promise<void> => {
+    await disconnectSsh();
+  };
+
+  const isConnecting = connectionState === 'connecting';
+  const isConnected = connectionState === 'connected';
+
+  const inputClass = 'w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1';
+
+  return (
+    <div className="space-y-6">
+      <SettingsSectionHeader title="Remote Connection" />
+      <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+        Connect to a remote machine to view Claude Code sessions running there
+      </p>
+
+      {/* Connection Status */}
+      {isConnected && (
+        <div
+          className="flex items-center gap-3 rounded-md border px-4 py-3"
+          style={{
+            borderColor: 'rgba(34, 197, 94, 0.3)',
+            backgroundColor: 'rgba(34, 197, 94, 0.05)',
+          }}
+        >
+          <Wifi className="size-4 text-green-400" />
+          <div className="flex-1">
+            <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+              Connected to {connectedHost}
+            </p>
+            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              Viewing remote sessions via SSH
+            </p>
+          </div>
+          <button
+            onClick={() => void handleDisconnect()}
+            className="rounded-md px-3 py-1.5 text-sm transition-colors"
+            style={{
+              backgroundColor: 'var(--color-surface-raised)',
+              color: 'var(--color-text-secondary)',
+            }}
+          >
+            Disconnect
+          </button>
+        </div>
+      )}
+
+      {connectionError && (
+        <div className="rounded-md border border-red-500/20 bg-red-500/10 px-4 py-3">
+          <p className="text-sm text-red-400">{connectionError}</p>
+        </div>
+      )}
+
+      {/* Mode indicator */}
+      {!isConnected && (
+        <SettingRow label="Current Mode" description="Data source for session files">
+          <div
+            className="flex items-center gap-2 text-sm"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            <Monitor className="size-4" />
+            <span>Local (~/.claude/)</span>
+          </div>
+        </SettingRow>
+      )}
+
+      {/* SSH Connection Form */}
+      {!isConnected && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+            SSH Connection
+          </h3>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                Host
+              </label>
+              <input
+                type="text"
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                placeholder="192.168.1.100"
+                className={inputClass}
+                style={{
+                  backgroundColor: 'var(--color-surface-raised)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                }}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                Port
+              </label>
+              <input
+                type="text"
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+                placeholder="22"
+                className={inputClass}
+                style={{
+                  backgroundColor: 'var(--color-surface-raised)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="user"
+              className={inputClass}
+              style={{
+                backgroundColor: 'var(--color-surface-raised)',
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              Authentication
+            </label>
+            <select
+              value={authMethod}
+              onChange={(e) => setAuthMethod(e.target.value as SshAuthMethod)}
+              className="w-full rounded-md border px-3 py-1.5 text-sm"
+              style={{
+                backgroundColor: 'var(--color-surface-raised)',
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+            >
+              <option value="agent">SSH Agent</option>
+              <option value="privateKey">Private Key</option>
+              <option value="password">Password</option>
+            </select>
+          </div>
+
+          {authMethod === 'privateKey' && (
+            <div>
+              <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                Private Key Path
+              </label>
+              <input
+                type="text"
+                value={privateKeyPath}
+                onChange={(e) => setPrivateKeyPath(e.target.value)}
+                placeholder="~/.ssh/id_rsa"
+                className={inputClass}
+                style={{
+                  backgroundColor: 'var(--color-surface-raised)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                }}
+              />
+            </div>
+          )}
+
+          {authMethod === 'password' && (
+            <div>
+              <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={inputClass}
+                style={{
+                  backgroundColor: 'var(--color-surface-raised)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                }}
+              />
+            </div>
+          )}
+
+          {/* Test result */}
+          {testResult && (
+            <div
+              className={`rounded-md border px-3 py-2 text-sm ${
+                testResult.success
+                  ? 'border-green-500/20 bg-green-500/10 text-green-400'
+                  : 'border-red-500/20 bg-red-500/10 text-red-400'
+              }`}
+            >
+              {testResult.success
+                ? 'Connection successful'
+                : `Connection failed: ${testResult.error}`}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => void handleTest()}
+              disabled={!host || !username || testing || isConnecting}
+              className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
+              style={{
+                backgroundColor: 'var(--color-surface-raised)',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {testing ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="size-3 animate-spin" />
+                  Testing...
+                </span>
+              ) : (
+                'Test Connection'
+              )}
+            </button>
+
+            <button
+              onClick={() => void handleConnect()}
+              disabled={!host || !username || isConnecting}
+              className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
+              style={{
+                backgroundColor: 'var(--color-surface-raised)',
+                color: 'var(--color-text)',
+              }}
+            >
+              {isConnecting ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="size-3 animate-spin" />
+                  Connecting...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <WifiOff className="size-3" />
+                  Connect
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

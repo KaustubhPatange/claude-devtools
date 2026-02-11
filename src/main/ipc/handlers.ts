@@ -10,6 +10,7 @@
  * - utility.ts: Shell operations and file reading
  * - notifications.ts: Notification management
  * - config.ts: App configuration
+ * - ssh.ts: SSH connection management
  */
 
 import { createLogger } from '@shared/utils/logger';
@@ -30,6 +31,7 @@ import {
   registerSessionHandlers,
   removeSessionHandlers,
 } from './sessions';
+import { initializeSshHandlers, registerSshHandlers, removeSshHandlers } from './ssh';
 import {
   initializeSubagentHandlers,
   registerSubagentHandlers,
@@ -48,6 +50,7 @@ import type {
   DataCache,
   ProjectScanner,
   SessionParser,
+  SshConnectionManager,
   SubagentResolver,
   UpdaterService,
 } from '../services';
@@ -61,7 +64,9 @@ export function initializeIpcHandlers(
   resolver: SubagentResolver,
   builder: ChunkBuilder,
   cache: DataCache,
-  updater: UpdaterService
+  updater: UpdaterService,
+  sshManager?: SshConnectionManager,
+  sshModeSwitchCallback?: (mode: 'local' | 'ssh') => Promise<void>
 ): void {
   // Initialize domain handlers with their required services
   initializeProjectHandlers(scanner);
@@ -69,6 +74,9 @@ export function initializeIpcHandlers(
   initializeSearchHandlers(scanner);
   initializeSubagentHandlers(builder, cache, parser, resolver);
   initializeUpdaterHandlers(updater);
+  if (sshManager && sshModeSwitchCallback) {
+    initializeSshHandlers(sshManager, sshModeSwitchCallback);
+  }
 
   // Register all handlers
   registerProjectHandlers(ipcMain);
@@ -80,6 +88,9 @@ export function initializeIpcHandlers(
   registerNotificationHandlers(ipcMain);
   registerConfigHandlers(ipcMain);
   registerUpdaterHandlers(ipcMain);
+  if (sshManager) {
+    registerSshHandlers(ipcMain);
+  }
 
   logger.info('All handlers registered');
 }
@@ -98,6 +109,7 @@ export function removeIpcHandlers(): void {
   removeNotificationHandlers(ipcMain);
   removeConfigHandlers(ipcMain);
   removeUpdaterHandlers(ipcMain);
+  removeSshHandlers(ipcMain);
 
   logger.info('All handlers removed');
 }

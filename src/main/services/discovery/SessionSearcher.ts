@@ -9,6 +9,7 @@
  */
 
 import { ChunkBuilder } from '@main/services/analysis/ChunkBuilder';
+import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFileSystemProvider';
 import {
   isEnhancedAIChunk,
   isUserChunk,
@@ -25,10 +26,11 @@ import {
   extractMarkdownPlainText,
   findMarkdownSearchMatches,
 } from '@shared/utils/markdownTextSearch';
-import * as fs from 'fs';
 import * as path from 'path';
 
 import { subprojectRegistry } from './SubprojectRegistry';
+
+import type { FileSystemProvider } from '@main/services/infrastructure/FileSystemProvider';
 
 const logger = createLogger('Discovery:SessionSearcher');
 
@@ -47,10 +49,12 @@ interface SearchableEntry {
 export class SessionSearcher {
   private readonly projectsDir: string;
   private readonly chunkBuilder: ChunkBuilder;
+  private readonly fsProvider: FileSystemProvider;
 
-  constructor(projectsDir: string) {
+  constructor(projectsDir: string, fsProvider?: FileSystemProvider) {
     this.projectsDir = projectsDir;
     this.chunkBuilder = new ChunkBuilder();
+    this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
   }
 
   /**
@@ -81,14 +85,12 @@ export class SessionSearcher {
       const projectPath = path.join(this.projectsDir, baseDir);
       const sessionFilter = subprojectRegistry.getSessionFilter(projectId);
 
-      try {
-        await fs.promises.access(projectPath, fs.constants.R_OK);
-      } catch {
+      if (!(await this.fsProvider.exists(projectPath))) {
         return { results: [], totalMatches: 0, sessionsSearched: 0, query };
       }
 
       // Get all session files
-      const entries = await fs.promises.readdir(projectPath, { withFileTypes: true });
+      const entries = await this.fsProvider.readdir(projectPath);
       const sessionFilesWithTime = await Promise.all(
         entries
           .filter((entry) => {
@@ -103,7 +105,7 @@ export class SessionSearcher {
           .map(async (entry) => {
             const filePath = path.join(projectPath, entry.name);
             try {
-              const stats = await fs.promises.stat(filePath);
+              const stats = await this.fsProvider.stat(filePath);
               return { name: entry.name, filePath, mtimeMs: stats.mtimeMs };
             } catch {
               return null;
@@ -168,7 +170,7 @@ export class SessionSearcher {
   ): Promise<SearchResult[]> {
     const results: SearchResult[] = [];
     let sessionTitle: string | undefined;
-    const messages = await parseJsonlFile(filePath);
+    const messages = await parseJsonlFile(filePath, this.fsProvider);
     const chunks = this.chunkBuilder.buildChunks(messages, []);
 
     for (const chunk of chunks) {

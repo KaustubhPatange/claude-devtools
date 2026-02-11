@@ -60,6 +60,25 @@ export const CONFIG_PIN_SESSION = 'config:pinSession';
 export const CONFIG_UNPIN_SESSION = 'config:unpinSession';
 
 // =============================================================================
+// SSH API Channels
+// =============================================================================
+
+/** Connect to SSH host */
+export const SSH_CONNECT = 'ssh:connect';
+
+/** Disconnect SSH and switch to local */
+export const SSH_DISCONNECT = 'ssh:disconnect';
+
+/** Get current SSH connection state */
+export const SSH_GET_STATE = 'ssh:getState';
+
+/** Test SSH connection without switching */
+export const SSH_TEST = 'ssh:test';
+
+/** SSH status event channel (main -> renderer) */
+export const SSH_STATUS = 'ssh:status';
+
+// =============================================================================
 // Updater API Channels
 // =============================================================================
 

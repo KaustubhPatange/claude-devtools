@@ -137,7 +137,7 @@ async function handleReadClaudeMdFiles(
   projectRoot: string
 ): Promise<Record<string, ClaudeMdFileInfo>> {
   try {
-    const result = readAllClaudeMdFiles(projectRoot);
+    const result = await readAllClaudeMdFiles(projectRoot);
     // Convert Map to object for IPC serialization
     const files: Record<string, ClaudeMdFileInfo> = {};
     result.files.forEach((info, key) => {
@@ -160,7 +160,7 @@ async function handleReadDirectoryClaudeMd(
   dirPath: string
 ): Promise<ClaudeMdFileInfo> {
   try {
-    const info = readDirectoryClaudeMd(dirPath);
+    const info = await readDirectoryClaudeMd(dirPath);
     return info;
   } catch (error) {
     logger.error(`Error in read-directory-claude-md:`, error);

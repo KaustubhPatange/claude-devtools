@@ -145,6 +145,66 @@ export interface UpdaterAPI {
 }
 
 // =============================================================================
+// SSH API
+// =============================================================================
+
+/**
+ * SSH connection state.
+ */
+export type SshConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+/**
+ * SSH authentication method.
+ */
+export type SshAuthMethod = 'password' | 'privateKey' | 'agent';
+
+/**
+ * SSH connection configuration sent from renderer.
+ */
+export interface SshConnectionConfig {
+  host: string;
+  port: number;
+  username: string;
+  authMethod: SshAuthMethod;
+  password?: string;
+  privateKeyPath?: string;
+}
+
+/**
+ * Saved SSH connection profile (no password stored).
+ */
+export interface SshConnectionProfile {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  authMethod: SshAuthMethod;
+  privateKeyPath?: string;
+}
+
+/**
+ * SSH connection status returned from main process.
+ */
+export interface SshConnectionStatus {
+  state: SshConnectionState;
+  host: string | null;
+  error: string | null;
+  remoteProjectsPath: string | null;
+}
+
+/**
+ * SSH API exposed via preload.
+ */
+export interface SshAPI {
+  connect: (config: SshConnectionConfig) => Promise<SshConnectionStatus>;
+  disconnect: () => Promise<SshConnectionStatus>;
+  getState: () => Promise<SshConnectionStatus>;
+  test: (config: SshConnectionConfig) => Promise<{ success: boolean; error?: string }>;
+  onStatus: (callback: (event: unknown, status: SshConnectionStatus) => void) => () => void;
+}
+
+// =============================================================================
 // Main Electron API
 // =============================================================================
 
@@ -225,6 +285,9 @@ export interface ElectronAPI {
 
   // Updater API
   updater: UpdaterAPI;
+
+  // SSH API
+  ssh: SshAPI;
 }
 
 // =============================================================================

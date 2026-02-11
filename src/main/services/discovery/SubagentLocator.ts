@@ -10,10 +10,13 @@
  * - Determine subagent ownership for OLD structure
  */
 
+import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFileSystemProvider';
 import { buildSubagentsPath, extractBaseDir } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+
+import type { FileSystemProvider } from '@main/services/infrastructure/FileSystemProvider';
 
 const logger = createLogger('Discovery:SubagentLocator');
 
@@ -22,20 +25,55 @@ const logger = createLogger('Discovery:SubagentLocator');
  */
 export class SubagentLocator {
   private readonly projectsDir: string;
+  private readonly fsProvider: FileSystemProvider;
 
-  constructor(projectsDir: string) {
+  constructor(projectsDir: string, fsProvider?: FileSystemProvider) {
     this.projectsDir = projectsDir;
+    this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
   }
 
   /**
    * Checks if a session has subagent files (async).
+   * Uses the FileSystemProvider for filesystem access.
    *
    * @param projectId - The project ID
    * @param sessionId - The session ID
    * @returns Promise resolving to true if subagents exist
    */
   async hasSubagents(projectId: string, sessionId: string): Promise<boolean> {
-    return this.hasSubagentsSync(projectId, sessionId);
+    // Check NEW structure: {projectId}/{sessionId}/subagents/
+    const newSubagentsPath = this.getSubagentsPath(projectId, sessionId);
+    if (await this.fsProvider.exists(newSubagentsPath)) {
+      try {
+        const entries = await this.fsProvider.readdir(newSubagentsPath);
+        const subagentFiles = entries.filter(
+          (entry) => entry.name.startsWith('agent-') && entry.name.endsWith('.jsonl')
+        );
+
+        // Check if at least one subagent file has content (not empty)
+        for (const entry of subagentFiles) {
+          const filePath = path.join(newSubagentsPath, entry.name);
+          try {
+            const stats = await this.fsProvider.stat(filePath);
+            // File must have size > 0 and contain at least one line
+            if (stats.size > 0) {
+              const content = await this.fsProvider.readFile(filePath);
+              if (content.trim().length > 0) {
+                return true;
+              }
+            }
+          } catch (error) {
+            // Skip this file if we can't read it - log for debugging
+            logger.debug(`SubagentLocator: Could not read file ${filePath}:`, error);
+            continue;
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -97,8 +135,8 @@ export class SubagentLocator {
     try {
       // Scan NEW structure: {projectId}/{sessionId}/subagents/agent-*.jsonl
       const newSubagentsPath = this.getSubagentsPath(projectId, sessionId);
-      if (fs.existsSync(newSubagentsPath)) {
-        const entries = fs.readdirSync(newSubagentsPath, { withFileTypes: true });
+      if (await this.fsProvider.exists(newSubagentsPath)) {
+        const entries = await this.fsProvider.readdir(newSubagentsPath);
         const newFiles = entries
           .filter(
             (entry) =>
@@ -138,14 +176,14 @@ export class SubagentLocator {
     try {
       const projectPath = path.join(this.projectsDir, extractBaseDir(projectId));
 
-      if (!fs.existsSync(projectPath)) {
+      if (!(await this.fsProvider.exists(projectPath))) {
         return [];
       }
 
-      const files = fs.readdirSync(projectPath);
-      const agentFiles = files
-        .filter((f) => f.startsWith('agent-') && f.endsWith('.jsonl'))
-        .map((f) => path.join(projectPath, f));
+      const entries = await this.fsProvider.readdir(projectPath);
+      const agentFiles = entries
+        .filter((entry) => entry.name.startsWith('agent-') && entry.name.endsWith('.jsonl'))
+        .map((entry) => path.join(projectPath, entry.name));
 
       // Filter files by checking if their sessionId matches
       const matchingFiles: string[] = [];
@@ -173,7 +211,7 @@ export class SubagentLocator {
   async subagentBelongsToSession(filePath: string, sessionId: string): Promise<boolean> {
     try {
       // Read just the first line to check sessionId
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = await this.fsProvider.readFile(filePath);
       const firstNewline = content.indexOf('\n');
       const firstLine = firstNewline > 0 ? content.slice(0, firstNewline) : content;
 

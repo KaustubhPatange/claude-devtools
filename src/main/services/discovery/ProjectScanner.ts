@@ -37,11 +37,14 @@ import {
   isValidEncodedPath,
 } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
-import * as fs from 'fs';
 import * as path from 'path';
+
+import { LocalFileSystemProvider } from '../infrastructure/LocalFileSystemProvider';
 
 import { SessionContentFilter } from './SessionContentFilter';
 import { subprojectRegistry } from './SubprojectRegistry';
+
+import type { FileSystemProvider } from '../infrastructure/FileSystemProvider';
 
 const logger = createLogger('Discovery:ProjectScanner');
 import { ProjectPathResolver } from './ProjectPathResolver';
@@ -65,22 +68,24 @@ export class ProjectScanner {
   >();
 
   // Delegated services
+  private readonly fsProvider: FileSystemProvider;
   private readonly sessionContentFilter: typeof SessionContentFilter;
   private readonly worktreeGrouper: WorktreeGrouper;
   private readonly subagentLocator: SubagentLocator;
   private readonly sessionSearcher: SessionSearcher;
   private readonly projectPathResolver: ProjectPathResolver;
 
-  constructor(projectsDir?: string, todosDir?: string) {
+  constructor(projectsDir?: string, todosDir?: string, fsProvider?: FileSystemProvider) {
     this.projectsDir = projectsDir ?? getProjectsBasePath();
     this.todosDir = todosDir ?? getTodosBasePath();
+    this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
 
     // Initialize delegated services
     this.sessionContentFilter = SessionContentFilter;
-    this.worktreeGrouper = new WorktreeGrouper(this.projectsDir);
-    this.subagentLocator = new SubagentLocator(this.projectsDir);
-    this.sessionSearcher = new SessionSearcher(this.projectsDir);
-    this.projectPathResolver = new ProjectPathResolver(this.projectsDir);
+    this.worktreeGrouper = new WorktreeGrouper(this.projectsDir, this.fsProvider);
+    this.subagentLocator = new SubagentLocator(this.projectsDir, this.fsProvider);
+    this.sessionSearcher = new SessionSearcher(this.projectsDir, this.fsProvider);
+    this.projectPathResolver = new ProjectPathResolver(this.projectsDir, this.fsProvider);
   }
 
   // ===========================================================================
@@ -93,7 +98,7 @@ export class ProjectScanner {
    */
   async scan(): Promise<Project[]> {
     try {
-      if (!fs.existsSync(this.projectsDir)) {
+      if (!(await this.fsProvider.exists(this.projectsDir))) {
         logger.warn(`Projects directory does not exist: ${this.projectsDir}`);
         return [];
       }
@@ -101,7 +106,7 @@ export class ProjectScanner {
       // Clear the subproject registry on full re-scan
       subprojectRegistry.clear();
 
-      const entries = fs.readdirSync(this.projectsDir, { withFileTypes: true });
+      const entries = await this.fsProvider.readdir(this.projectsDir);
 
       // Filter to only directories with valid encoding pattern
       const projectDirs = entries.filter(
@@ -176,7 +181,7 @@ export class ProjectScanner {
   private async scanProject(encodedName: string): Promise<Project[]> {
     try {
       const projectPath = path.join(this.projectsDir, encodedName);
-      const entries = fs.readdirSync(projectPath, { withFileTypes: true });
+      const entries = await this.fsProvider.readdir(projectPath);
 
       // Get session files (.jsonl at root level)
       const sessionFiles = entries.filter(
@@ -199,10 +204,10 @@ export class ProjectScanner {
       const sessionInfos: SessionInfo[] = await Promise.all(
         sessionFiles.map(async (file) => {
           const filePath = path.join(projectPath, file.name);
-          const stats = fs.statSync(filePath);
+          const stats = await this.fsProvider.stat(filePath);
           let cwd: string | null = null;
           try {
-            cwd = await extractCwd(filePath);
+            cwd = await extractCwd(filePath, this.fsProvider);
           } catch {
             // Ignore unreadable files
           }
@@ -328,7 +333,7 @@ export class ProjectScanner {
     const baseDir = extractBaseDir(projectId);
     const projectPath = path.join(this.projectsDir, baseDir);
 
-    if (!fs.existsSync(projectPath)) {
+    if (!(await this.fsProvider.exists(projectPath))) {
       return null;
     }
 
@@ -356,11 +361,11 @@ export class ProjectScanner {
       const projectPath = path.join(this.projectsDir, baseDir);
       const sessionFilter = subprojectRegistry.getSessionFilter(projectId);
 
-      if (!fs.existsSync(projectPath)) {
+      if (!(await this.fsProvider.exists(projectPath))) {
         return [];
       }
 
-      const entries = fs.readdirSync(projectPath, { withFileTypes: true });
+      const entries = await this.fsProvider.readdir(projectPath);
       let sessionFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'));
 
       // Filter to only sessions belonging to this subproject
@@ -421,12 +426,12 @@ export class ProjectScanner {
       const projectPath = path.join(this.projectsDir, baseDir);
       const sessionFilter = subprojectRegistry.getSessionFilter(projectId);
 
-      if (!fs.existsSync(projectPath)) {
+      if (!(await this.fsProvider.exists(projectPath))) {
         return { sessions: [], nextCursor: null, hasMore: false, totalCount: 0 };
       }
 
       // Step 1: Get all session files with their timestamps (lightweight stat calls)
-      const entries = fs.readdirSync(projectPath, { withFileTypes: true });
+      const entries = await this.fsProvider.readdir(projectPath);
       let sessionFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'));
 
       // Filter to only sessions belonging to this subproject
@@ -447,7 +452,7 @@ export class ProjectScanner {
       for (const file of sessionFiles) {
         const filePath = path.join(projectPath, file.name);
         try {
-          const stats = fs.statSync(filePath);
+          const stats = await this.fsProvider.stat(filePath);
           fileInfos.push({
             name: file.name,
             sessionId: extractSessionId(file.name),
@@ -590,18 +595,18 @@ export class ProjectScanner {
     filePath: string,
     projectPath: string
   ): Promise<Session> {
-    const stats = fs.statSync(filePath);
+    const stats = await this.fsProvider.stat(filePath);
     const cachedMetadata = this.sessionMetadataCache.get(filePath);
     const metadata =
       cachedMetadata?.mtimeMs === stats.mtimeMs
         ? cachedMetadata.metadata
-        : await analyzeSessionFileMetadata(filePath);
+        : await analyzeSessionFileMetadata(filePath, this.fsProvider);
     if (cachedMetadata?.mtimeMs !== stats.mtimeMs) {
       this.sessionMetadataCache.set(filePath, { mtimeMs: stats.mtimeMs, metadata });
     }
 
     // Check for subagents (delegated to SubagentLocator)
-    const hasSubagents = this.subagentLocator.hasSubagentsSync(projectId, sessionId);
+    const hasSubagents = await this.subagentLocator.hasSubagents(projectId, sessionId);
 
     // Load task list data if exists
     const todoData = await this.loadTodoData(sessionId);
@@ -627,7 +632,7 @@ export class ProjectScanner {
   async getSession(projectId: string, sessionId: string): Promise<Session | null> {
     const filePath = this.getSessionPath(projectId, sessionId);
 
-    if (!fs.existsSync(filePath)) {
+    if (!(await this.fsProvider.exists(filePath))) {
       return null;
     }
 
@@ -646,11 +651,11 @@ export class ProjectScanner {
     try {
       const todoPath = buildTodoPath(path.dirname(this.projectsDir), sessionId);
 
-      if (!fs.existsSync(todoPath)) {
+      if (!(await this.fsProvider.exists(todoPath))) {
         return undefined;
       }
 
-      const content = fs.readFileSync(todoPath, 'utf8');
+      const content = await this.fsProvider.readFile(todoPath);
       return JSON.parse(content) as unknown;
     } catch (error) {
       // Log but continue - task list data is non-critical
@@ -686,11 +691,11 @@ export class ProjectScanner {
       const projectPath = path.join(this.projectsDir, baseDir);
       const sessionFilter = subprojectRegistry.getSessionFilter(projectId);
 
-      if (!fs.existsSync(projectPath)) {
+      if (!(await this.fsProvider.exists(projectPath))) {
         return [];
       }
 
-      const entries = fs.readdirSync(projectPath, { withFileTypes: true });
+      const entries = await this.fsProvider.readdir(projectPath);
 
       let files = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'));
 
@@ -754,8 +759,8 @@ export class ProjectScanner {
   /**
    * Checks if the projects directory exists.
    */
-  projectsDirExists(): boolean {
-    return fs.existsSync(this.projectsDir);
+  async projectsDirExists(): Promise<boolean> {
+    return this.fsProvider.exists(this.projectsDir);
   }
 
   // ===========================================================================
@@ -803,13 +808,16 @@ export class ProjectScanner {
    */
   private async hasDisplayableContent(filePath: string, mtimeMs?: number): Promise<boolean> {
     try {
-      const effectiveMtime = mtimeMs ?? fs.statSync(filePath).mtimeMs;
+      const effectiveMtime = mtimeMs ?? (await this.fsProvider.stat(filePath)).mtimeMs;
       const cached = this.contentPresenceCache.get(filePath);
       if (cached?.mtimeMs === effectiveMtime) {
         return cached.hasContent;
       }
 
-      const hasContent = await this.sessionContentFilter.hasNonNoiseMessages(filePath);
+      const hasContent = await this.sessionContentFilter.hasNonNoiseMessages(
+        filePath,
+        this.fsProvider
+      );
       this.contentPresenceCache.set(filePath, { mtimeMs: effectiveMtime, hasContent });
       return hasContent;
     } catch {

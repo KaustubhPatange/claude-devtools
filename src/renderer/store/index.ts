@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 
 import { createConfigSlice } from './slices/configSlice';
+import { createConnectionSlice } from './slices/connectionSlice';
 import { createConversationSlice } from './slices/conversationSlice';
 import { createNotificationSlice } from './slices/notificationSlice';
 import { createPaneSlice } from './slices/paneSlice';
@@ -39,6 +40,7 @@ export const useStore = create<AppState>()((...args) => ({
   ...createUISlice(...args),
   ...createNotificationSlice(...args),
   ...createConfigSlice(...args),
+  ...createConnectionSlice(...args),
   ...createUpdateSlice(...args),
 }));
 
@@ -267,6 +269,28 @@ export function initializeNotificationListeners(): () => void {
             updateError: s.error ?? 'Unknown error',
           });
           break;
+      }
+    });
+    if (typeof cleanup === 'function') {
+      cleanupFns.push(cleanup);
+    }
+  }
+
+  // Listen for SSH connection status changes from main process
+  if (window.electronAPI.ssh?.onStatus) {
+    const cleanup = window.electronAPI.ssh.onStatus((_event: unknown, status: unknown) => {
+      const s = status as { state: string; host: string | null; error: string | null };
+      useStore
+        .getState()
+        .setConnectionStatus(
+          s.state as 'disconnected' | 'connecting' | 'connected' | 'error',
+          s.host,
+          s.error
+        );
+
+      // Re-fetch data when connection state changes to connected or disconnected
+      if (s.state === 'connected' || s.state === 'disconnected') {
+        void useStore.getState().fetchProjects();
       }
     });
     if (typeof cleanup === 'function') {

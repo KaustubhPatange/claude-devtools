@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
-import { Bell, Settings, Wrench } from 'lucide-react';
+import { Bell, Server, Settings, Wrench } from 'lucide-react';
 
-export type SettingsSection = 'general' | 'notifications' | 'advanced';
+export type SettingsSection = 'general' | 'connection' | 'notifications' | 'advanced';
 
 interface SettingsTabsProps {
   activeSection: SettingsSection;
@@ -17,6 +17,7 @@ interface TabConfig {
 
 const tabs: TabConfig[] = [
   { id: 'general', label: 'General', icon: Settings },
+  { id: 'connection', label: 'Connection', icon: Server },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'advanced', label: 'Advanced', icon: Wrench },
 ];

@@ -8,7 +8,12 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import { useSettingsConfig, useSettingsHandlers } from './hooks';
-import { AdvancedSection, GeneralSection, NotificationsSection } from './sections';
+import {
+  AdvancedSection,
+  ConnectionSection,
+  GeneralSection,
+  NotificationsSection,
+} from './sections';
 import { type SettingsSection, SettingsTabs } from './SettingsTabs';
 
 export const SettingsView = (): React.JSX.Element | null => {
@@ -111,6 +116,8 @@ export const SettingsView = (): React.JSX.Element | null => {
               onThemeChange={handlers.handleThemeChange}
             />
           )}
+
+          {activeSection === 'connection' && <ConnectionSection />}
 
           {activeSection === 'notifications' && (
             <NotificationsSection

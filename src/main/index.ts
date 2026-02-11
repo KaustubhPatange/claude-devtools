@@ -35,6 +35,8 @@ const getIconPath = (): string => {
 };
 
 const logger = createLogger('App');
+import { SSH_STATUS } from '@preload/constants/ipcChannels';
+
 import {
   ChunkBuilder,
   configManager,
@@ -62,6 +64,9 @@ let dataCache: DataCache;
 let fileWatcher: FileWatcher;
 let notificationManager: NotificationManager;
 let updaterService: UpdaterService;
+let sshConnectionManager: InstanceType<
+  typeof import('./services/infrastructure/SshConnectionManager').SshConnectionManager
+>;
 let cleanupInterval: NodeJS.Timeout | null = null;
 
 /**
@@ -69,6 +74,13 @@ let cleanupInterval: NodeJS.Timeout | null = null;
  */
 function initializeServices(): void {
   logger.info('Initializing services...');
+
+  // Initialize SSH connection manager
+  const { SshConnectionManager: SshConnMgr } =
+    require('./services/infrastructure/SshConnectionManager') as {
+      SshConnectionManager: typeof import('./services/infrastructure/SshConnectionManager').SshConnectionManager;
+    };
+  sshConnectionManager = new SshConnMgr();
 
   // Initialize services (paths are set automatically from environment)
   projectScanner = new ProjectScanner();
@@ -81,15 +93,58 @@ function initializeServices(): void {
 
   logger.info(`Projects directory: ${projectScanner.getProjectsDir()}`);
 
-  // Initialize IPC handlers
+  // Mode switch callback: recreates services with new provider when switching local↔SSH
+  const handleModeSwitch = async (mode: 'local' | 'ssh'): Promise<void> => {
+    logger.info(`Switching to ${mode} mode`);
+
+    // Stop file watcher
+    fileWatcher.stop();
+
+    // Clear data cache
+    dataCache.clear();
+
+    // Get provider and projects path from connection manager
+    const provider = sshConnectionManager.getProvider();
+    const projectsDir =
+      mode === 'ssh' ? (sshConnectionManager.getRemoteProjectsPath() ?? undefined) : undefined;
+
+    // Recreate services with new provider
+    projectScanner = new ProjectScanner(projectsDir, undefined, provider);
+    sessionParser = new SessionParser(projectScanner);
+    subagentResolver = new SubagentResolver(projectScanner);
+
+    // Update file watcher provider
+    fileWatcher.setFileSystemProvider(provider);
+
+    // Restart file watcher
+    fileWatcher.start();
+
+    // Notify renderer to re-fetch all data
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(SSH_STATUS, sshConnectionManager.getStatus());
+    }
+
+    logger.info(`Mode switch to ${mode} complete`);
+  };
+
+  // Initialize IPC handlers (including SSH)
   initializeIpcHandlers(
     projectScanner,
     sessionParser,
     subagentResolver,
     chunkBuilder,
     dataCache,
-    updaterService
+    updaterService,
+    sshConnectionManager,
+    handleModeSwitch
   );
+
+  // Forward SSH state changes to renderer
+  sshConnectionManager.on('state-change', (status: unknown) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(SSH_STATUS, status);
+    }
+  });
 
   // Initialize notification manager using singleton pattern
   // This ensures IPC handlers and FileWatcher use the same instance
@@ -136,6 +191,11 @@ function shutdownServices(): void {
   if (cleanupInterval) {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
+  }
+
+  // Dispose SSH connection manager
+  if (sshConnectionManager) {
+    sshConnectionManager.dispose();
   }
 
   // Remove IPC handlers

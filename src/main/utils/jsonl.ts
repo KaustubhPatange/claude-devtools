@@ -9,11 +9,9 @@
 
 import { isCommandOutputContent, sanitizeDisplayContent } from '@shared/utils/contentSanitizer';
 import { createLogger } from '@shared/utils/logger';
-import * as fs from 'fs';
 import * as readline from 'readline';
 
-const logger = createLogger('Util:jsonl');
-
+import { LocalFileSystemProvider } from '../services/infrastructure/LocalFileSystemProvider';
 import {
   type ChatHistoryEntry,
   type ContentBlock,
@@ -31,6 +29,12 @@ import {
 // Import from extracted modules
 import { extractToolCalls, extractToolResults } from './toolExtraction';
 
+import type { FileSystemProvider } from '../services/infrastructure/FileSystemProvider';
+
+const logger = createLogger('Util:jsonl');
+
+const defaultProvider = new LocalFileSystemProvider();
+
 // Re-export for backwards compatibility
 export { extractCwd } from './metadataExtraction';
 export { checkMessagesOngoing } from './sessionStateDetection';
@@ -43,14 +47,17 @@ export { checkMessagesOngoing } from './sessionStateDetection';
  * Parse a JSONL file line by line using streaming.
  * This avoids loading the entire file into memory.
  */
-export async function parseJsonlFile(filePath: string): Promise<ParsedMessage[]> {
+export async function parseJsonlFile(
+  filePath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<ParsedMessage[]> {
   const messages: ParsedMessage[] = [];
 
-  if (!fs.existsSync(filePath)) {
+  if (!(await fsProvider.exists(filePath))) {
     return messages;
   }
 
-  const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
+  const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
   const rl = readline.createInterface({
     input: fileStream,
     crlfDelay: Infinity,
@@ -299,8 +306,11 @@ export interface SessionFileMetadata {
  * Analyze key session metadata in a single streaming pass.
  * This avoids multiple file scans when listing sessions.
  */
-export async function analyzeSessionFileMetadata(filePath: string): Promise<SessionFileMetadata> {
-  if (!fs.existsSync(filePath)) {
+export async function analyzeSessionFileMetadata(
+  filePath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<SessionFileMetadata> {
+  if (!(await fsProvider.exists(filePath))) {
     return {
       firstUserMessage: null,
       messageCount: 0,
@@ -309,7 +319,7 @@ export async function analyzeSessionFileMetadata(filePath: string): Promise<Sess
     };
   }
 
-  const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
+  const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
   const rl = readline.createInterface({
     input: fileStream,
     crlfDelay: Infinity,

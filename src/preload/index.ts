@@ -2,6 +2,11 @@ import { WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL } from '@shared/constants';
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  SSH_CONNECT,
+  SSH_DISCONNECT,
+  SSH_GET_STATE,
+  SSH_STATUS,
+  SSH_TEST,
   UPDATER_CHECK,
   UPDATER_DOWNLOAD,
   UPDATER_INSTALL,
@@ -32,6 +37,8 @@ import type {
   ElectronAPI,
   NotificationTrigger,
   SessionsPaginationOptions,
+  SshConnectionConfig,
+  SshConnectionStatus,
   TriggerTestResult,
 } from '@shared/types';
 
@@ -305,6 +312,34 @@ const electronAPI: ElectronAPI = {
       return (): void => {
         ipcRenderer.removeListener(
           UPDATER_STATUS,
+          callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
+        );
+      };
+    },
+  },
+
+  // SSH API
+  ssh: {
+    connect: async (config: SshConnectionConfig): Promise<SshConnectionStatus> => {
+      return invokeIpcWithResult<SshConnectionStatus>(SSH_CONNECT, config);
+    },
+    disconnect: async (): Promise<SshConnectionStatus> => {
+      return invokeIpcWithResult<SshConnectionStatus>(SSH_DISCONNECT);
+    },
+    getState: async (): Promise<SshConnectionStatus> => {
+      return ipcRenderer.invoke(SSH_GET_STATE);
+    },
+    test: async (config: SshConnectionConfig): Promise<{ success: boolean; error?: string }> => {
+      return invokeIpcWithResult<{ success: boolean; error?: string }>(SSH_TEST, config);
+    },
+    onStatus: (callback: (event: unknown, status: SshConnectionStatus) => void): (() => void) => {
+      ipcRenderer.on(
+        SSH_STATUS,
+        callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
+      );
+      return (): void => {
+        ipcRenderer.removeListener(
+          SSH_STATUS,
           callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
         );
       };
