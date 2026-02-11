@@ -1,5 +1,5 @@
 /**
- * Notification and configuration types for Claude Code Context.
+ * Notification and configuration types for claude-devtools.
  *
  * These types define:
  * - Detected errors from session files

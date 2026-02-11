@@ -70,7 +70,7 @@ export function decodePath(encodedName: string): string {
  */
 export function extractProjectName(encodedName: string, cwdHint?: string): string {
   // Prefer cwdHint (actual filesystem path) since decodePath is lossy for
-  // paths containing dashes (e.g., "claude-code-context" → "claude/code/context").
+  // paths containing dashes (e.g., "claude-devtools" → "claude/code/context").
   if (cwdHint) {
     const segments = cwdHint.split(/[/\\]/).filter(Boolean);
     const last = segments[segments.length - 1];

@@ -1,5 +1,5 @@
 ---
-name: ccc:design-system
+name: claude-devtools:design-system
 description: Design system and visual language — theming, CSS variables, Tailwind config, component styling patterns, icon usage, animations, and z-index layers. Use when creating or modifying UI components, working with the dark/light theme, or debugging visual issues.
 ---
 

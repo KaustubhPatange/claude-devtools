@@ -1,5 +1,5 @@
 /**
- * ConfigManager service - Manages app configuration stored at ~/.claude/claude-code-context-config.json.
+ * ConfigManager service - Manages app configuration stored at ~/.claude/claude-devtools-config.json.
  *
  * Responsibilities:
  * - Load configuration from disk on initialization
@@ -22,7 +22,7 @@ import type { TriggerColor } from '@shared/constants/triggerColors';
 const logger = createLogger('Service:ConfigManager');
 
 const CONFIG_DIR = path.join(os.homedir(), '.claude');
-const CONFIG_FILENAME = 'claude-code-context-config.json';
+const CONFIG_FILENAME = 'claude-devtools-config.json';
 const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, CONFIG_FILENAME);
 
 // ===========================================================================

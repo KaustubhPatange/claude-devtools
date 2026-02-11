@@ -1,5 +1,5 @@
 /**
- * Visualization-specific types for Claude Code Context.
+ * Visualization-specific types for claude-devtools.
  *
  * These types are used for waterfall chart visualization
  * and are shared between main and renderer processes.

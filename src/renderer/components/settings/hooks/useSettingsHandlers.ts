@@ -319,7 +319,7 @@ export function useSettingsHandlers({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'claude-code-context-config.json';
+    link.download = 'claude-devtools-config.json';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

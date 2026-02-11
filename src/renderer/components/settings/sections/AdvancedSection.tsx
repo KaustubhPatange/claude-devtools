@@ -146,7 +146,7 @@ export const AdvancedSection = ({
         <div>
           <div className="flex items-center gap-3">
             <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              Claude Code Context
+              claude-devtools
             </p>
             <button
               onClick={handleCheckForUpdates}

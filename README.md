@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="resources/icons/png/512x512.png" alt="Claude Code Context" width="120" />
+  <img src="resources/icons/png/512x512.png" alt="claude-devtools" width="120" />
 </p>
 
-<h1 align="center">Claude Code Context</h1>
+<h1 align="center">claude-devtools</h1>
 
 <p align="center">
   <strong>Stop guessing. See exactly what Claude is doing.</strong>
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/matt1398/claude-code-context/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://github.com/matt1398/claude-devtools/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="#"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg" alt="Platform" /></a>
   <a href="#"><img src="https://img.shields.io/badge/electron-40-47848F.svg?logo=electron" alt="Electron" /></a>
   <a href="#"><img src="https://img.shields.io/badge/react-18-61DAFB.svg?logo=react" alt="React" /></a>
@@ -22,7 +22,7 @@
 
 <p align="center">
   <!-- TODO: Replace with actual demo GIF/video -->
-  <img src="docs/assets/demo.gif" alt="Claude Code Context Demo" width="900" />
+  <img src="docs/assets/demo.gif" alt="claude-devtools Demo" width="900" />
 </p>
 
 ---
@@ -39,7 +39,7 @@ There are many GUI wrappers for Claude Code — Conductor, Craft Agents, Vibe Ka
 
 **You can't monitor what matters.** Want to know when Claude reads `.env`? When a single tool call exceeds 4K tokens of context? When a teammate sends a shutdown request? You'd have to wire up hooks manually, every time, for every project.
 
-**Claude Code Context takes a different approach.** It doesn't wrap or modify Claude Code at all. It reads the session logs that already exist on your machine (`~/.claude/`) and turns them into a rich, interactive interface — regardless of whether the session ran in the terminal, in an IDE, or through another tool.
+**claude-devtools takes a different approach.** It doesn't wrap or modify Claude Code at all. It reads the session logs that already exist on your machine (`~/.claude/`) and turns them into a rich, interactive interface — regardless of whether the session ran in the terminal, in an IDE, or through another tool.
 
 > Zero configuration. No API keys. Works with every session you've ever run.
 
@@ -88,8 +88,8 @@ Open multiple sessions side-by-side. Drag-and-drop tabs between panes, split vie
 ### Install & Run
 
 ```bash
-git clone https://github.com/matt1398/claude-code-context.git
-cd claude-code-context
+git clone https://github.com/matt1398/claude-devtools.git
+cd claude-devtools
 pnpm install
 pnpm dev
 ```

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to Claude Code Context.
+Thanks for contributing to claude-devtools.
 
 ## Prerequisites
 - Node.js 20+

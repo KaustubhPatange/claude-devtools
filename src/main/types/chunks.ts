@@ -1,5 +1,5 @@
 /**
- * Chunk and visualization types for Claude Code Context.
+ * Chunk and visualization types for claude-devtools.
  *
  * This module contains:
  * - Chunk types (UserChunk, AIChunk, SystemChunk, CompactChunk)

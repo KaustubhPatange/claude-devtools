@@ -1,4 +1,4 @@
-# Claude Code Context
+# claude-devtools
 
 Electron app that visualizes Claude Code session execution
 

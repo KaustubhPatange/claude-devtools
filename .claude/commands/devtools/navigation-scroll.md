@@ -1,5 +1,5 @@
 ---
-name: ccc:navigation-scroll
+name: claude-devtools:navigation-scroll
 description: Navigation and scroll orchestration — tab navigation, error highlights, search scrolling, auto-scroll coordination, and common bug patterns. Use when working on useTabNavigationController, scroll restore, or navigation requests.
 ---
 

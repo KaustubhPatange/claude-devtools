@@ -1,5 +1,5 @@
 /**
- * Main process entry point for Claude Code Context.
+ * Main process entry point for claude-devtools.
  *
  * Responsibilities:
  * - Initialize Electron app and main window
@@ -170,7 +170,7 @@ function createWindow(): void {
     backgroundColor: '#1a1a1a',
     titleBarStyle: 'hidden',
     trafficLightPosition: getTrafficLightPositionForZoom(1),
-    title: 'Claude Code Context',
+    title: 'claude-devtools',
   });
 
   // Load the renderer

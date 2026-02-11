@@ -1,17 +1,17 @@
 {
-  "name": "claude-code-context",
+  "name": "claude-devtools",
   "type": "module",
   "version": "0.1.0",
   "description": "Desktop app that visualizes Claude Code session execution — explore conversations, track context usage, and analyze tool calls",
   "license": "MIT",
-  "author": "Claude Code Context contributors",
-  "homepage": "https://github.com/matt1398/claude-code-context",
+  "author": "claude-devtools contributors",
+  "homepage": "https://github.com/matt1398/claude-devtools",
   "repository": {
     "type": "git",
-    "url": "https://github.com/matt1398/claude-code-context.git"
+    "url": "https://github.com/matt1398/claude-devtools.git"
   },
   "bugs": {
-    "url": "https://github.com/matt1398/claude-code-context/issues"
+    "url": "https://github.com/matt1398/claude-devtools/issues"
   },
   "main": "dist-electron/main/index.js",
   "scripts": {

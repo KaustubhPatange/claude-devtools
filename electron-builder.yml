@@ -1,5 +1,5 @@
 appId: com.claudecode.context
-productName: Claude Code Context
+productName: claude-devtools
 
 directories:
   output: release
@@ -14,8 +14,6 @@ asar: true
 extraMetadata:
   main: dist-electron/main/index.js
 
-afterSign: scripts/notarize.cjs
-
 mac:
   category: public.app-category.developer-tools
   target:
@@ -24,8 +22,6 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   icon: resources/icons/mac/icon.icns
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
   sign: false
