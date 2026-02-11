@@ -76,7 +76,8 @@ export function getAvailableMatchFields(
           { value: 'args', label: 'Arguments' },
         ];
       default:
-        return [];
+        // "Any Tool" - match against the entire JSON-serialized input
+        return [{ value: '', label: 'Full Input (JSON)' }];
     }
   }
 
