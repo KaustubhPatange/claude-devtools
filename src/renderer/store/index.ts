@@ -302,6 +302,22 @@ export function initializeNotificationListeners(): () => void {
     }
   }
 
+  // Listen for context changes from main process (e.g., SSH disconnect)
+  if (window.electronAPI.context?.onChanged) {
+    const cleanup = window.electronAPI.context.onChanged((_event: unknown, data: unknown) => {
+      const { id } = data as { id: string };
+      const currentContextId = useStore.getState().activeContextId;
+      if (id !== currentContextId) {
+        // Main process switched context externally (e.g., SSH disconnect)
+        // Trigger renderer-side context switch to sync state
+        void useStore.getState().switchContext(id);
+      }
+    });
+    if (typeof cleanup === 'function') {
+      cleanupFns.push(cleanup);
+    }
+  }
+
   // Return cleanup function
   return () => {
     for (const timer of pendingSessionRefreshTimers.values()) {
