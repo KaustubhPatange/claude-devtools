@@ -18,6 +18,7 @@ import * as path from 'path';
 import { DEFAULT_TRIGGERS, TriggerManager } from './TriggerManager';
 
 import type { TriggerColor } from '@shared/constants/triggerColors';
+import type { SshConnectionProfile } from '@shared/types/api';
 
 const logger = createLogger('Service:ConfigManager');
 
@@ -199,6 +200,8 @@ export interface SshPersistConfig {
     privateKeyPath?: string;
   } | null;
   autoReconnect: boolean;
+  profiles: SshConnectionProfile[];
+  lastActiveContextId: string;
 }
 
 export interface AppConfig {
@@ -247,6 +250,8 @@ const DEFAULT_CONFIG: AppConfig = {
   ssh: {
     lastConnection: null,
     autoReconnect: false,
+    profiles: [],
+    lastActiveContextId: 'local',
   },
 };
 
@@ -662,6 +667,77 @@ export class ConfigManager {
     }
 
     this.saveConfig();
+  }
+
+  // ===========================================================================
+  // SSH Profile Management
+  // ===========================================================================
+
+  /**
+   * Adds an SSH connection profile.
+   * @param profile - The SSH connection profile to add
+   */
+  addSshProfile(profile: SshConnectionProfile): void {
+    // Check for duplicates by ID
+    if (this.config.ssh.profiles.some((p) => p.id === profile.id)) {
+      logger.warn(`SSH profile with ID ${profile.id} already exists`);
+      return;
+    }
+
+    this.config.ssh.profiles.push(profile);
+    this.saveConfig();
+    logger.info(`SSH profile added: ${profile.name} (${profile.id})`);
+  }
+
+  /**
+   * Removes an SSH connection profile by ID.
+   * @param profileId - The profile ID to remove
+   */
+  removeSshProfile(profileId: string): void {
+    const index = this.config.ssh.profiles.findIndex((p) => p.id === profileId);
+    if (index === -1) {
+      logger.warn(`SSH profile not found: ${profileId}`);
+      return;
+    }
+
+    const removed = this.config.ssh.profiles.splice(index, 1)[0];
+    this.saveConfig();
+    logger.info(`SSH profile removed: ${removed.name} (${profileId})`);
+  }
+
+  /**
+   * Updates an existing SSH connection profile.
+   * @param profileId - The profile ID to update
+   * @param updates - Partial profile data to merge
+   */
+  updateSshProfile(profileId: string, updates: Partial<SshConnectionProfile>): void {
+    const profile = this.config.ssh.profiles.find((p) => p.id === profileId);
+    if (!profile) {
+      logger.warn(`SSH profile not found: ${profileId}`);
+      return;
+    }
+
+    Object.assign(profile, updates);
+    this.saveConfig();
+    logger.info(`SSH profile updated: ${profile.name} (${profileId})`);
+  }
+
+  /**
+   * Gets all SSH connection profiles.
+   * @returns Array of SSH connection profiles
+   */
+  getSshProfiles(): SshConnectionProfile[] {
+    return this.deepClone(this.config.ssh.profiles);
+  }
+
+  /**
+   * Sets the last active context ID (for restoration on app restart).
+   * @param contextId - The context ID that was active
+   */
+  setLastActiveContextId(contextId: string): void {
+    this.config.ssh.lastActiveContextId = contextId;
+    this.saveConfig();
+    logger.info(`Last active context ID saved: ${contextId}`);
   }
 
   // ===========================================================================

@@ -2,6 +2,10 @@ import { WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL } from '@shared/constants';
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  CONTEXT_CHANGED,
+  CONTEXT_GET_ACTIVE,
+  CONTEXT_LIST,
+  CONTEXT_SWITCH,
   SSH_CONNECT,
   SSH_DISCONNECT,
   SSH_GET_CONFIG_HOSTS,
@@ -38,6 +42,7 @@ import {
 
 import type {
   AppConfig,
+  ContextInfo,
   ElectronAPI,
   NotificationTrigger,
   SessionsPaginationOptions,
@@ -358,6 +363,31 @@ const electronAPI: ElectronAPI = {
       return (): void => {
         ipcRenderer.removeListener(
           SSH_STATUS,
+          callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
+        );
+      };
+    },
+  },
+
+  // Context API
+  context: {
+    list: async (): Promise<ContextInfo[]> => {
+      return invokeIpcWithResult<ContextInfo[]>(CONTEXT_LIST);
+    },
+    getActive: async (): Promise<string> => {
+      return invokeIpcWithResult<string>(CONTEXT_GET_ACTIVE);
+    },
+    switch: async (contextId: string): Promise<{ contextId: string }> => {
+      return invokeIpcWithResult<{ contextId: string }>(CONTEXT_SWITCH, contextId);
+    },
+    onChanged: (callback: (event: unknown, data: ContextInfo) => void): (() => void) => {
+      ipcRenderer.on(
+        CONTEXT_CHANGED,
+        callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
+      );
+      return (): void => {
+        ipcRenderer.removeListener(
+          CONTEXT_CHANGED,
           callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
         );
       };

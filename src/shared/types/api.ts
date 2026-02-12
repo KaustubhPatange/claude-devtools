@@ -145,6 +145,18 @@ export interface UpdaterAPI {
 }
 
 // =============================================================================
+// Context API
+// =============================================================================
+
+/**
+ * Context information for listing available contexts.
+ */
+export interface ContextInfo {
+  id: string;
+  type: 'local' | 'ssh';
+}
+
+// =============================================================================
 // SSH API
 // =============================================================================
 
@@ -314,6 +326,14 @@ export interface ElectronAPI {
 
   // SSH API
   ssh: SshAPI;
+
+  // Context API
+  context: {
+    list: () => Promise<ContextInfo[]>;
+    getActive: () => Promise<string>;
+    switch: (contextId: string) => Promise<{ contextId: string }>;
+    onChanged: (callback: (event: unknown, data: ContextInfo) => void) => () => void;
+  };
 }
 
 // =============================================================================
