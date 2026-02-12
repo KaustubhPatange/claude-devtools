@@ -13,6 +13,8 @@ interface SettingsSelectProps<T extends string | number> {
   readonly onChange: (value: T) => void;
   readonly disabled?: boolean;
   readonly dropUp?: boolean;
+  /** When true, trigger spans full width and dropdown aligns left */
+  readonly fullWidth?: boolean;
 }
 
 export const SettingsSelect = <T extends string | number>({
@@ -21,6 +23,7 @@ export const SettingsSelect = <T extends string | number>({
   onChange,
   disabled = false,
   dropUp = false,
+  fullWidth = false,
 }: SettingsSelectProps<T>): React.JSX.Element => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,7 +57,7 @@ export const SettingsSelect = <T extends string | number>({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`flex h-8 min-w-[140px] items-center justify-between gap-2 rounded-md border bg-transparent px-2 text-sm transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-zinc-700 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${isOpen ? 'ring-1 ring-zinc-700' : ''} `}
+        className={`flex h-8 items-center justify-between gap-2 rounded-md border bg-transparent px-2 text-sm transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-zinc-700 ${fullWidth ? 'w-full' : 'min-w-[140px]'} ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${isOpen ? 'ring-1 ring-zinc-700' : ''} `}
         style={{
           color: 'var(--color-text-secondary)',
           borderColor: isOpen ? 'var(--color-border)' : 'var(--color-border-subtle)',
@@ -70,7 +73,7 @@ export const SettingsSelect = <T extends string | number>({
       {/* Dropdown Menu */}
       {isOpen && (
         <div
-          className={`absolute right-0 z-50 min-w-max overflow-hidden rounded-md border py-1 shadow-xl shadow-black/20 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}
+          className={`absolute z-50 min-w-max overflow-hidden rounded-md border py-1 shadow-xl shadow-black/20 ${fullWidth ? 'inset-x-0' : 'right-0'} ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}
           style={{
             backgroundColor: 'var(--color-surface-raised)',
             borderColor: 'var(--color-border-subtle)',

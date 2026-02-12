@@ -4,6 +4,7 @@ import { ContextSwitchOverlay } from './components/common/ContextSwitchOverlay';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { TabbedLayout } from './components/layout/TabbedLayout';
 import { useTheme } from './hooks/useTheme';
+import { api } from './api';
 import { initializeNotificationListeners, useStore } from './store';
 
 export const App = (): React.JSX.Element => {
@@ -26,8 +27,8 @@ export const App = (): React.JSX.Element => {
 
   // Refresh available contexts when SSH connection state changes
   useEffect(() => {
-    if (!window.electronAPI.ssh?.onStatus) return;
-    const cleanup = window.electronAPI.ssh.onStatus(() => {
+    if (!api.ssh?.onStatus) return;
+    const cleanup = api.ssh.onStatus(() => {
       void useStore.getState().fetchAvailableContexts();
     });
     return cleanup;

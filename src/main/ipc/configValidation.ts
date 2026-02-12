@@ -10,6 +10,7 @@ import type {
   HttpServerConfig,
   NotificationConfig,
   NotificationTrigger,
+  SshPersistConfig,
 } from '../services';
 
 type ConfigSection = keyof AppConfig;
@@ -30,6 +31,7 @@ export type ConfigUpdateValidationResult =
   | ValidationSuccess<'general'>
   | ValidationSuccess<'display'>
   | ValidationSuccess<'httpServer'>
+  | ValidationSuccess<'ssh'>
   | ValidationFailure;
 
 const VALID_SECTIONS = new Set<ConfigSection>([
@@ -37,6 +39,7 @@ const VALID_SECTIONS = new Set<ConfigSection>([
   'general',
   'display',
   'httpServer',
+  'ssh',
 ]);
 const MAX_SNOOZE_MINUTES = 24 * 60;
 
@@ -321,6 +324,70 @@ function validateHttpServerSection(
   };
 }
 
+function isValidSshProfile(profile: unknown): boolean {
+  if (!isPlainObject(profile)) return false;
+  if (typeof profile.id !== 'string' || profile.id.trim().length === 0) return false;
+  if (typeof profile.name !== 'string') return false;
+  if (typeof profile.host !== 'string') return false;
+  if (typeof profile.port !== 'number') return false;
+  if (typeof profile.username !== 'string') return false;
+  const validMethods = ['password', 'privateKey', 'agent', 'auto'];
+  if (!validMethods.includes(profile.authMethod as string)) return false;
+  return true;
+}
+
+function validateSshSection(data: unknown): ValidationSuccess<'ssh'> | ValidationFailure {
+  if (!isPlainObject(data)) {
+    return { valid: false, error: 'ssh update must be an object' };
+  }
+
+  const allowedKeys: (keyof SshPersistConfig)[] = [
+    'lastConnection',
+    'autoReconnect',
+    'profiles',
+    'lastActiveContextId',
+  ];
+
+  const result: Partial<SshPersistConfig> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (!allowedKeys.includes(key as keyof SshPersistConfig)) {
+      return { valid: false, error: `ssh.${key} is not a valid setting` };
+    }
+
+    switch (key as keyof SshPersistConfig) {
+      case 'autoReconnect':
+        if (typeof value !== 'boolean') {
+          return { valid: false, error: 'ssh.autoReconnect must be a boolean' };
+        }
+        result.autoReconnect = value;
+        break;
+      case 'lastActiveContextId':
+        if (typeof value !== 'string') {
+          return { valid: false, error: 'ssh.lastActiveContextId must be a string' };
+        }
+        result.lastActiveContextId = value;
+        break;
+      case 'lastConnection':
+        if (value !== null && !isPlainObject(value)) {
+          return { valid: false, error: 'ssh.lastConnection must be an object or null' };
+        }
+        result.lastConnection = value as SshPersistConfig['lastConnection'];
+        break;
+      case 'profiles':
+        if (!Array.isArray(value) || !value.every(isValidSshProfile)) {
+          return { valid: false, error: 'ssh.profiles must be a valid profile array' };
+        }
+        result.profiles = value as SshPersistConfig['profiles'];
+        break;
+      default:
+        return { valid: false, error: `Unsupported ssh key: ${key}` };
+    }
+  }
+
+  return { valid: true, section: 'ssh', data: result };
+}
+
 export function validateConfigUpdatePayload(
   section: unknown,
   data: unknown
@@ -328,7 +395,7 @@ export function validateConfigUpdatePayload(
   if (typeof section !== 'string' || !VALID_SECTIONS.has(section as ConfigSection)) {
     return {
       valid: false,
-      error: 'Section must be one of: notifications, general, display, httpServer',
+      error: 'Section must be one of: notifications, general, display, httpServer, ssh',
     };
   }
 
@@ -341,6 +408,8 @@ export function validateConfigUpdatePayload(
       return validateDisplaySection(data);
     case 'httpServer':
       return validateHttpServerSection(data);
+    case 'ssh':
+      return validateSshSection(data);
     default:
       return { valid: false, error: 'Invalid section' };
   }

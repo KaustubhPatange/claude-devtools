@@ -10,12 +10,14 @@
  * Profile changes persist via ConfigManager and trigger context list refresh.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
+import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
-import { ChevronDown, Edit2, Loader2, Plus, Save, Server, Trash2, X } from 'lucide-react';
+import { Edit2, Loader2, Plus, Save, Server, Trash2, X } from 'lucide-react';
 
 import { SettingsSectionHeader } from '../components/SettingsSectionHeader';
+import { SettingsSelect } from '../components/SettingsSelect';
 
 import type { SshAuthMethod, SshConnectionProfile } from '@shared/types';
 
@@ -26,7 +28,7 @@ const inputStyle = {
   color: 'var(--color-text)',
 };
 
-const authMethodOptions: { value: SshAuthMethod; label: string }[] = [
+const authMethodOptions: readonly { value: SshAuthMethod; label: string }[] = [
   { value: 'auto', label: 'Auto (from SSH Config)' },
   { value: 'agent', label: 'SSH Agent' },
   { value: 'privateKey', label: 'Private Key' },
@@ -40,101 +42,6 @@ const defaultForm = {
   username: '',
   authMethod: 'auto' as SshAuthMethod,
   privateKeyPath: '',
-};
-
-const AuthMethodSelect = ({
-  value,
-  onChange,
-}: {
-  value: SshAuthMethod;
-  onChange: (v: SshAuthMethod) => void;
-}): React.JSX.Element => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClickOutside = (e: MouseEvent): void => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const handleEscape = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [isOpen]);
-
-  const selectedLabel = authMethodOptions.find((o) => o.value === value)?.label ?? value;
-
-  return (
-    <div>
-      <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
-        Authentication
-      </label>
-      <div ref={containerRef} className="relative">
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className={inputClass}
-          style={{
-            ...inputStyle,
-            textAlign: 'left',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span>{selectedLabel}</span>
-          <ChevronDown
-            className={`size-3.5 transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
-            style={{ color: 'var(--color-text-muted)' }}
-          />
-        </button>
-        {isOpen && (
-          <div
-            className="absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-md border shadow-lg"
-            style={{
-              backgroundColor: 'var(--color-surface-overlay)',
-              borderColor: 'var(--color-border-emphasis)',
-            }}
-          >
-            {authMethodOptions.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => {
-                  onChange(opt.value);
-                  setIsOpen(false);
-                }}
-                className="flex w-full items-center px-3 py-2 text-left text-sm transition-colors"
-                style={{
-                  color: opt.value === value ? 'var(--color-text)' : 'var(--color-text-secondary)',
-                  backgroundColor:
-                    opt.value === value ? 'var(--color-surface-raised)' : 'transparent',
-                }}
-                onMouseEnter={(e) => {
-                  if (opt.value !== value)
-                    e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)';
-                }}
-                onMouseLeave={(e) => {
-                  if (opt.value !== value) e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
 };
 
 export const WorkspaceSection = (): React.JSX.Element => {
@@ -162,9 +69,9 @@ export const WorkspaceSection = (): React.JSX.Element => {
 
   const loadProfiles = useCallback(async () => {
     try {
-      const config = await window.electronAPI.config.get();
+      const config = await api.config.get();
       // AppConfig type doesn't include ssh field, but ConfigManager returns it at runtime
-      const loaded = (config as unknown as { ssh?: { profiles?: SshConnectionProfile[] } }).ssh;
+      const loaded = config.ssh;
       setProfiles(loaded?.profiles ?? []);
     } catch (error) {
       console.error('[WorkspaceSection] Failed to load profiles:', error);
@@ -203,7 +110,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
       privateKeyPath: formAuthMethod === 'privateKey' ? formPrivateKeyPath.trim() : undefined,
     };
 
-    await window.electronAPI.config.update('ssh', { profiles: [...profiles, newProfile] });
+    await api.config.update('ssh', { profiles: [...profiles, newProfile] });
     await loadProfiles();
     resetForm();
     setShowAddForm(false);
@@ -225,7 +132,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
         : p
     );
 
-    await window.electronAPI.config.update('ssh', { profiles: updatedProfiles });
+    await api.config.update('ssh', { profiles: updatedProfiles });
     await loadProfiles();
     setEditingId(null);
     resetForm();
@@ -240,7 +147,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
     if (!confirmed) return;
 
     const filtered = profiles.filter((p) => p.id !== id);
-    await window.electronAPI.config.update('ssh', { profiles: filtered });
+    await api.config.update('ssh', { profiles: filtered });
     await loadProfiles();
     void useStore.getState().fetchAvailableContexts();
   };
@@ -314,7 +221,17 @@ export const WorkspaceSection = (): React.JSX.Element => {
         </div>
       </div>
 
-      <AuthMethodSelect value={formAuthMethod} onChange={setFormAuthMethod} />
+      <div>
+        <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Authentication
+        </label>
+        <SettingsSelect
+          value={formAuthMethod}
+          options={authMethodOptions}
+          onChange={setFormAuthMethod}
+          fullWidth
+        />
+      </div>
 
       {formAuthMethod === 'privateKey' && (
         <div>

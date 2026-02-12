@@ -102,6 +102,10 @@ export class HttpAPIClient implements ElectronAPI {
 
   private async parseJson<T>(res: Response): Promise<T> {
     const text = await res.text();
+    if (!res.ok) {
+      const parsed = JSON.parse(text) as { error?: string };
+      throw new Error(parsed.error ?? `HTTP ${res.status}`);
+    }
     return JSON.parse(text, HttpAPIClient.reviveDates) as T;
   }
 

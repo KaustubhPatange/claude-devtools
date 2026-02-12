@@ -5,6 +5,7 @@
  * between local and SSH contexts, with IndexedDB persistence and TTL.
  */
 
+import { api } from '@renderer/api';
 import { contextStorage } from '@renderer/services/contextStorage';
 
 import { getFullResetState } from '../utils/stateResetHelpers';
@@ -243,7 +244,7 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
       }
 
       // Fetch active context from main process
-      const activeContextId = await window.electronAPI.context.getActive();
+      const activeContextId = await api.context.getActive();
 
       set({
         contextSnapshotsReady: true,
@@ -261,7 +262,7 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
   // Fetch list of available contexts (local + SSH)
   fetchAvailableContexts: async () => {
     try {
-      const result = await window.electronAPI.context.list();
+      const result = await api.context.list();
       set({ availableContexts: result });
     } catch (error) {
       console.error('[contextSlice] Failed to fetch available contexts:', error);
@@ -290,12 +291,12 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
       await contextStorage.saveSnapshot(state.activeContextId, currentSnapshot);
 
       // Step 2: Switch main process context
-      await window.electronAPI.context.switch(targetContextId);
+      await api.context.switch(targetContextId);
 
       // Step 3: Fetch fresh data from target context
       const [freshProjects, freshRepoGroups] = await Promise.all([
-        window.electronAPI.getProjects(),
-        window.electronAPI.getRepositoryGroups(),
+        api.getProjects(),
+        api.getRepositoryGroups(),
       ]);
 
       // Step 4: Attempt to restore snapshot for target context

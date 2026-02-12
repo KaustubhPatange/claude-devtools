@@ -8,15 +8,29 @@
  * - Testing and connecting to remote hosts
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
-import { Loader2, Monitor, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, Monitor, Server, Wifi, WifiOff } from 'lucide-react';
 
 import { SettingRow } from '../components/SettingRow';
 import { SettingsSectionHeader } from '../components/SettingsSectionHeader';
+import { SettingsSelect } from '../components/SettingsSelect';
 
-import type { SshAuthMethod, SshConfigHostEntry, SshConnectionConfig } from '@shared/types';
+import type {
+  SshAuthMethod,
+  SshConfigHostEntry,
+  SshConnectionConfig,
+  SshConnectionProfile,
+} from '@shared/types';
+
+const authMethodOptions: readonly { value: SshAuthMethod; label: string }[] = [
+  { value: 'auto', label: 'Auto (from SSH Config)' },
+  { value: 'agent', label: 'SSH Agent' },
+  { value: 'privateKey', label: 'Private Key' },
+  { value: 'password', label: 'Password' },
+];
 
 export const ConnectionSection = (): React.JSX.Element => {
   const connectionState = useStore((s) => s.connectionState);
@@ -45,11 +59,25 @@ export const ConnectionSection = (): React.JSX.Element => {
   const hostInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch SSH config hosts and load last connection on mount
+  // Saved profiles
+  const [savedProfiles, setSavedProfiles] = useState<SshConnectionProfile[]>([]);
+
+  const loadProfiles = useCallback(async () => {
+    try {
+      const config = await api.config.get();
+      const loaded = config.ssh;
+      setSavedProfiles(loaded?.profiles ?? []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Fetch SSH config hosts, saved profiles, and load last connection on mount
   useEffect(() => {
     void fetchSshConfigHosts();
     void loadLastConnection();
-  }, [fetchSshConfigHosts, loadLastConnection]);
+    void loadProfiles();
+  }, [fetchSshConfigHosts, loadLastConnection, loadProfiles]);
 
   // Pre-fill form from saved connection config when it arrives (one-time on mount).
   // setState in effect is intentional: lastSshConfig loads async from IPC, so we can't
@@ -101,6 +129,16 @@ export const ConnectionSection = (): React.JSX.Element => {
     if (entry.user) setUsername(entry.user);
     setAuthMethod('auto');
     setShowDropdown(false);
+    setTestResult(null);
+  };
+
+  const handleSelectProfile = (profile: SshConnectionProfile): void => {
+    setHost(profile.host);
+    setPort(String(profile.port));
+    setUsername(profile.username);
+    setAuthMethod(profile.authMethod);
+    if (profile.privateKeyPath) setPrivateKeyPath(profile.privateKeyPath);
+    setPassword('');
     setTestResult(null);
   };
 
@@ -194,6 +232,35 @@ export const ConnectionSection = (): React.JSX.Element => {
             <span>Local (~/.claude/)</span>
           </div>
         </SettingRow>
+      )}
+
+      {/* Saved Profiles */}
+      {!isConnected && savedProfiles.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+            Saved Profiles
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {savedProfiles.map((profile) => (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => handleSelectProfile(profile)}
+                className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-surface-raised"
+                style={{
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                <Server className="size-3.5" style={{ color: 'var(--color-text-muted)' }} />
+                <span>{profile.name}</span>
+                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  {profile.username}@{profile.host}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* SSH Connection Form */}
@@ -292,17 +359,12 @@ export const ConnectionSection = (): React.JSX.Element => {
             <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
               Authentication
             </label>
-            <select
+            <SettingsSelect
               value={authMethod}
-              onChange={(e) => setAuthMethod(e.target.value as SshAuthMethod)}
-              className="w-full rounded-md border px-3 py-1.5 text-sm"
-              style={inputStyle}
-            >
-              <option value="auto">Auto (from SSH Config)</option>
-              <option value="agent">SSH Agent</option>
-              <option value="privateKey">Private Key</option>
-              <option value="password">Password</option>
-            </select>
+              options={authMethodOptions}
+              onChange={setAuthMethod}
+              fullWidth
+            />
           </div>
 
           {authMethod === 'privateKey' && (
