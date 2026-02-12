@@ -22,6 +22,7 @@ import {
   type SearchSessionsResult,
   type Session,
   type SessionCursor,
+  type SessionMetadataLevel,
   type SessionsPaginationOptions,
 } from '@main/types';
 import { analyzeSessionFileMetadata, extractCwd } from '@main/utils/jsonl';
@@ -44,7 +45,7 @@ import { LocalFileSystemProvider } from '../infrastructure/LocalFileSystemProvid
 import { SessionContentFilter } from './SessionContentFilter';
 import { subprojectRegistry } from './SubprojectRegistry';
 
-import type { FileSystemProvider } from '../infrastructure/FileSystemProvider';
+import type { FileSystemProvider, FsDirent } from '../infrastructure/FileSystemProvider';
 
 const logger = createLogger('Discovery:ProjectScanner');
 import { ProjectPathResolver } from './ProjectPathResolver';
@@ -97,6 +98,7 @@ export class ProjectScanner {
    * @returns Promise resolving to projects sorted by most recent activity
    */
   async scan(): Promise<Project[]> {
+    const startedAt = Date.now();
     try {
       if (!(await this.fsProvider.exists(this.projectsDir))) {
         logger.warn(`Projects directory does not exist: ${this.projectsDir}`);
@@ -119,6 +121,12 @@ export class ProjectScanner {
       // Flatten and sort by most recent
       const validProjects = projectArrays.flat();
       validProjects.sort((a, b) => (b.mostRecentSession ?? 0) - (a.mostRecentSession ?? 0));
+
+      if (this.fsProvider.type === 'ssh') {
+        logger.debug(
+          `SSH scan completed: ${validProjects.length} projects in ${Date.now() - startedAt}ms`
+        );
+      }
 
       return validProjects;
     } catch (error) {
@@ -207,7 +215,7 @@ export class ProjectScanner {
         this.fsProvider.type === 'ssh' ? 32 : 128,
         async (file) => {
           const filePath = path.join(projectPath, file.name);
-          const stats = await this.fsProvider.stat(filePath);
+          const { mtimeMs, birthtimeMs } = await this.resolveFileTimes(file, filePath);
           let cwd: string | null = null;
 
           // Over SSH, avoid reading every file body during project discovery.
@@ -222,8 +230,8 @@ export class ProjectScanner {
           return {
             sessionId: extractSessionId(file.name),
             filePath,
-            mtimeMs: stats.mtimeMs,
-            birthtimeMs: stats.birthtimeMs,
+            mtimeMs,
+            birthtimeMs,
             cwd,
           } satisfies SessionInfo;
         }
@@ -393,16 +401,38 @@ export class ProjectScanner {
         sessionFiles.map(async (file) => {
           const sessionId = extractSessionId(file.name);
           const filePath = path.join(projectPath, file.name);
+          const prefetchedMtimeMs = file.mtimeMs;
 
           if (shouldFilterNoise) {
             // Check if session has non-noise messages (delegated to SessionContentFilter)
-            const hasContent = await this.hasDisplayableContent(filePath);
+            const hasContent = await this.hasDisplayableContent(filePath, prefetchedMtimeMs);
             if (!hasContent) {
               return null; // Filter out noise-only sessions
             }
           }
 
-          return this.buildSessionMetadata(projectId, sessionId, filePath, decodedPath);
+          try {
+            return await this.buildSessionMetadata(
+              projectId,
+              sessionId,
+              filePath,
+              decodedPath,
+              prefetchedMtimeMs
+            );
+          } catch (error) {
+            if (this.fsProvider.type !== 'ssh') {
+              throw error;
+            }
+
+            logger.debug(`SSH metadata parse failed for ${sessionId}, using light fallback`, error);
+            return this.buildLightSessionMetadata(
+              projectId,
+              sessionId,
+              filePath,
+              decodedPath,
+              prefetchedMtimeMs
+            );
+          }
         })
       );
 
@@ -434,6 +464,7 @@ export class ProjectScanner {
     limit: number = 20,
     options?: SessionsPaginationOptions
   ): Promise<PaginatedSessionsResult> {
+    const startedAt = Date.now();
     try {
       const includeTotalCount = options?.includeTotalCount ?? false;
       const prefilterAll = options?.prefilterAll ?? false;
@@ -469,13 +500,13 @@ export class ProjectScanner {
         this.fsProvider.type === 'ssh' ? 48 : 200,
         async (file) => {
           const filePath = path.join(projectPath, file.name);
-          const stats = await this.fsProvider.stat(filePath);
+          const { mtimeMs } = await this.resolveFileTimes(file, filePath);
           return {
             name: file.name,
             sessionId: extractSessionId(file.name),
-            timestamp: stats.mtimeMs,
+            timestamp: mtimeMs,
             filePath,
-            mtimeMs: stats.mtimeMs,
+            mtimeMs,
           } satisfies SessionFileInfo;
         }
       );
@@ -581,23 +612,37 @@ export class ProjectScanner {
         const needed = limit + 1 - sessions.length;
         const toBuild = withContent.slice(0, needed);
 
-        const metadataResults = await Promise.allSettled(
-          toBuild.map(({ fileInfo }) =>
-            this.buildSessionMetadata(
-              projectId,
-              fileInfo.sessionId,
-              fileInfo.filePath,
-              decodedPath,
-              fileInfo.mtimeMs
-            )
-          )
-        );
+        const builtSessions = await Promise.all(
+          toBuild.map(async ({ fileInfo }) => {
+            try {
+              return await this.buildSessionMetadata(
+                projectId,
+                fileInfo.sessionId,
+                fileInfo.filePath,
+                decodedPath,
+                fileInfo.mtimeMs
+              );
+            } catch (error) {
+              // In SSH mode, never drop a visible session row due to transient deep-parse failures.
+              if (this.fsProvider.type !== 'ssh') {
+                throw error;
+              }
 
-        for (const result of metadataResults) {
-          if (result.status === 'fulfilled') {
-            sessions.push(result.value);
-          }
-        }
+              logger.debug(
+                `SSH page metadata parse failed for ${fileInfo.sessionId}, using light fallback`,
+                error
+              );
+              return this.buildLightSessionMetadata(
+                projectId,
+                fileInfo.sessionId,
+                fileInfo.filePath,
+                decodedPath,
+                fileInfo.mtimeMs
+              );
+            }
+          })
+        );
+        sessions.push(...builtSessions);
 
         batchStart = batchEnd;
       }
@@ -626,12 +671,20 @@ export class ProjectScanner {
         }
       }
 
-      return {
+      const result: PaginatedSessionsResult = {
         sessions: pageSessions,
         nextCursor,
         hasMore: nextCursor !== null,
         totalCount,
       };
+
+      if (this.fsProvider.type === 'ssh') {
+        logger.debug(
+          `SSH listSessionsPaginated(${projectId}) returned ${result.sessions.length} sessions in ${Date.now() - startedAt}ms (hasMore=${result.hasMore})`
+        );
+      }
+
+      return result;
     } catch (error) {
       logger.error(`Error listing paginated sessions for project ${projectId}:`, error);
       return { sessions: [], nextCursor: null, hasMore: false, totalCount: 0 };
@@ -648,8 +701,11 @@ export class ProjectScanner {
     projectPath: string,
     prefetchedMtimeMs?: number
   ): Promise<Session> {
-    const stats = await this.fsProvider.stat(filePath);
-    const effectiveMtime = prefetchedMtimeMs ?? stats.mtimeMs;
+    const usePrefetchedTimes =
+      this.fsProvider.type === 'ssh' && typeof prefetchedMtimeMs === 'number';
+    const stats = usePrefetchedTimes ? null : await this.fsProvider.stat(filePath);
+    const effectiveMtime = prefetchedMtimeMs ?? stats?.mtimeMs ?? Date.now();
+    const birthtimeMs = stats?.birthtimeMs ?? effectiveMtime;
     const cachedMetadata = this.sessionMetadataCache.get(filePath);
     const metadata =
       cachedMetadata?.mtimeMs === effectiveMtime
@@ -664,19 +720,49 @@ export class ProjectScanner {
       this.subagentLocator.hasSubagents(projectId, sessionId),
       this.loadTodoData(sessionId),
     ]);
+    const metadataLevel: SessionMetadataLevel = 'deep';
 
     return {
       id: sessionId,
       projectId,
       projectPath,
       todoData,
-      createdAt: Math.floor(stats.birthtimeMs),
+      createdAt: Math.floor(birthtimeMs),
       firstMessage: metadata.firstUserMessage?.text,
       messageTimestamp: metadata.firstUserMessage?.timestamp,
       hasSubagents,
       messageCount: metadata.messageCount,
       isOngoing: metadata.isOngoing,
       gitBranch: metadata.gitBranch ?? undefined,
+      metadataLevel,
+    };
+  }
+
+  /**
+   * Build a lightweight session record using filesystem metadata only.
+   * Used as SSH fallback when deep parsing fails transiently.
+   */
+  private async buildLightSessionMetadata(
+    projectId: string,
+    sessionId: string,
+    filePath: string,
+    projectPath: string,
+    prefetchedMtimeMs?: number
+  ): Promise<Session> {
+    const times =
+      typeof prefetchedMtimeMs === 'number'
+        ? { mtimeMs: prefetchedMtimeMs, birthtimeMs: prefetchedMtimeMs }
+        : await this.resolveFileTimes(undefined, filePath);
+    const metadataLevel: SessionMetadataLevel = 'light';
+
+    return {
+      id: sessionId,
+      projectId,
+      projectPath,
+      createdAt: Math.floor(times.birthtimeMs),
+      hasSubagents: false,
+      messageCount: 0,
+      metadataLevel,
     };
   }
 
@@ -842,6 +928,27 @@ export class ProjectScanner {
     maxResults: number = 50
   ): Promise<SearchSessionsResult> {
     return this.sessionSearcher.searchSessions(projectId, query, maxResults);
+  }
+
+  /**
+   * Resolve best-available file timestamps from directory entry metadata or stat fallback.
+   */
+  private async resolveFileTimes(
+    entry: FsDirent | undefined,
+    filePath: string
+  ): Promise<{ mtimeMs: number; birthtimeMs: number }> {
+    if (entry && typeof entry.mtimeMs === 'number') {
+      return {
+        mtimeMs: entry.mtimeMs,
+        birthtimeMs: entry.birthtimeMs ?? entry.mtimeMs,
+      };
+    }
+
+    const stats = await this.fsProvider.stat(filePath);
+    return {
+      mtimeMs: stats.mtimeMs,
+      birthtimeMs: stats.birthtimeMs,
+    };
   }
 
   /**

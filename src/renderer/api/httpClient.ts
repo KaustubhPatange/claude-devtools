@@ -237,6 +237,11 @@ export class HttpAPIClient implements ElectronAPI {
       `/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/groups`
     );
 
+  getSessionsByIds = (projectId: string, sessionIds: string[]): Promise<Session[]> =>
+    this.post<Session[]>(`/api/projects/${encodeURIComponent(projectId)}/sessions-by-ids`, {
+      sessionIds,
+    });
+
   // ---------------------------------------------------------------------------
   // Repository grouping
   // ---------------------------------------------------------------------------

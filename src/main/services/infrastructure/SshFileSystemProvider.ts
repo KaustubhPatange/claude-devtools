@@ -18,6 +18,8 @@ import type { SFTPWrapper } from 'ssh2';
 
 const logger = createLogger('Infrastructure:SshFileSystemProvider');
 
+export type SftpErrorKind = 'not_found' | 'transient' | 'permanent';
+
 export class SshFileSystemProvider implements FileSystemProvider {
   private static readonly MAX_RETRIES = 3;
   private static readonly RETRY_BASE_DELAY_MS = 75;
@@ -34,12 +36,13 @@ export class SshFileSystemProvider implements FileSystemProvider {
       await this.stat(filePath);
       return true;
     } catch (error) {
-      if (this.isNotFoundError(error)) {
+      const errorKind = this.classifySftpError(error);
+      if (errorKind === 'not_found') {
         return false;
       }
 
       // For transient SFTP failures (e.g. code=4), avoid false negatives.
-      if (this.isRetryableError(error)) {
+      if (errorKind === 'transient') {
         const code = this.getErrorCode(error);
         logger.debug(
           `exists(${filePath}) got retryable SFTP error (${String(code)}); treating path as potentially present`
@@ -66,10 +69,7 @@ export class SshFileSystemProvider implements FileSystemProvider {
         });
       } catch (error) {
         lastError = error;
-        if (
-          this.isRetryableError(error) &&
-          attempt < SshFileSystemProvider.MAX_RETRIES
-        ) {
+        if (this.classifySftpError(error) === 'transient' && attempt < SshFileSystemProvider.MAX_RETRIES) {
           await this.sleep(SshFileSystemProvider.RETRY_BASE_DELAY_MS * attempt);
           continue;
         }
@@ -108,10 +108,7 @@ export class SshFileSystemProvider implements FileSystemProvider {
         });
       } catch (error) {
         lastError = error;
-        if (
-          this.isRetryableError(error) &&
-          attempt < SshFileSystemProvider.MAX_RETRIES
-        ) {
+        if (this.classifySftpError(error) === 'transient' && attempt < SshFileSystemProvider.MAX_RETRIES) {
           await this.sleep(SshFileSystemProvider.RETRY_BASE_DELAY_MS * attempt);
           continue;
         }
@@ -139,17 +136,16 @@ export class SshFileSystemProvider implements FileSystemProvider {
             const entries: FsDirent[] = [];
             for (const item of list) {
               const mode = item.attrs.mode;
-              entries.push(this.buildDirent(item.filename, mode, S_IFMT, S_IFREG, S_IFDIR));
+              entries.push(
+                this.buildDirent(item.filename, mode, S_IFMT, S_IFREG, S_IFDIR, item.attrs.size, item.attrs.mtime)
+              );
             }
             resolve(entries);
           });
         });
       } catch (error) {
         lastError = error;
-        if (
-          this.isRetryableError(error) &&
-          attempt < SshFileSystemProvider.MAX_RETRIES
-        ) {
+        if (this.classifySftpError(error) === 'transient' && attempt < SshFileSystemProvider.MAX_RETRIES) {
           await this.sleep(SshFileSystemProvider.RETRY_BASE_DELAY_MS * attempt);
           continue;
         }
@@ -227,17 +223,33 @@ export class SshFileSystemProvider implements FileSystemProvider {
     );
   }
 
+  private classifySftpError(error: unknown): SftpErrorKind {
+    if (this.isNotFoundError(error)) {
+      return 'not_found';
+    }
+    if (this.isRetryableError(error)) {
+      return 'transient';
+    }
+    return 'permanent';
+  }
+
   private buildDirent(
     filename: string,
     mode: number,
     sifmt: number,
     sifreg: number,
-    sifdir: number
+    sifdir: number,
+    size?: number,
+    mtimeSeconds?: number
   ): FsDirent {
+    const mtimeMs = typeof mtimeSeconds === 'number' ? mtimeSeconds * 1000 : undefined;
     return {
       name: filename,
       isFile: () => (mode & sifmt) === sifreg,
       isDirectory: () => (mode & sifmt) === sifdir,
+      size,
+      mtimeMs,
+      birthtimeMs: mtimeMs,
     };
   }
 }

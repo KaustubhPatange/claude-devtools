@@ -412,15 +412,16 @@ export class FileWatcher extends EventEmitter {
 
           const fullPath = path.join(projectPath, entry.name);
           try {
-            const stats = await this.fsProvider.stat(fullPath);
+            const observedSize =
+              typeof entry.size === 'number' ? entry.size : (await this.fsProvider.stat(fullPath)).size;
             const lastSize = this.polledFileSizes.get(fullPath);
 
             if (lastSize === undefined) {
               // First time seeing this file
-              this.polledFileSizes.set(fullPath, stats.size);
-            } else if (stats.size !== lastSize) {
+              this.polledFileSizes.set(fullPath, observedSize);
+            } else if (observedSize !== lastSize) {
               // File changed
-              this.polledFileSizes.set(fullPath, stats.size);
+              this.polledFileSizes.set(fullPath, observedSize);
               this.handleProjectsChange('change', path.join(dir.name, entry.name));
             }
           } catch {

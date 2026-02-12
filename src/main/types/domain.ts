@@ -62,6 +62,8 @@ export interface Project {
 /**
  * Session metadata and summary.
  */
+export type SessionMetadataLevel = 'light' | 'deep';
+
 export interface Session {
   /** Session UUID (JSONL filename without extension) */
   id: string;
@@ -85,6 +87,8 @@ export interface Session {
   isOngoing?: boolean;
   /** Git branch name if available */
   gitBranch?: string;
+  /** Metadata completeness level */
+  metadataLevel?: SessionMetadataLevel;
 }
 
 /**

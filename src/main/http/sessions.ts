@@ -82,6 +82,51 @@ export function registerSessionRoutes(app: FastifyInstance, services: HttpServic
     }
   });
 
+  // Fetch sessions by IDs (for pinned sessions beyond paginated page)
+  app.post<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/sessions-by-ids',
+    async (request) => {
+      try {
+        const validated = validateProjectId(request.params.projectId);
+        if (!validated.valid) {
+          logger.error(`POST sessions-by-ids rejected: ${validated.error ?? 'unknown'}`);
+          return [];
+        }
+
+        const { sessionIds } = request.body as { sessionIds?: string[] };
+        if (!Array.isArray(sessionIds)) {
+          logger.error('POST sessions-by-ids rejected: sessionIds must be an array');
+          return [];
+        }
+
+        // Cap at 50 IDs
+        const capped = sessionIds.slice(0, 50);
+
+        // Validate each session ID
+        const validIds: string[] = [];
+        for (const id of capped) {
+          const result = validateSessionId(id);
+          if (result.valid) {
+            validIds.push(result.value!);
+          }
+        }
+
+        if (validIds.length === 0) {
+          return [];
+        }
+
+        const results = await Promise.all(
+          validIds.map((id) => services.projectScanner.getSession(validated.value!, id))
+        );
+
+        return results.filter((s): s is NonNullable<typeof s> => s !== null);
+      } catch (error) {
+        logger.error(`Error in POST sessions-by-ids for ${request.params.projectId}:`, error);
+        return [];
+      }
+    }
+  );
+
   // Session detail
   app.get<{ Params: { projectId: string; sessionId: string } }>(
     '/api/projects/:projectId/sessions/:sessionId',

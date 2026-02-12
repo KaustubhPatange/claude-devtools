@@ -45,6 +45,7 @@ export function initializeSessionHandlers(contextRegistry: ServiceContextRegistr
 export function registerSessionHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('get-sessions', handleGetSessions);
   ipcMain.handle('get-sessions-paginated', handleGetSessionsPaginated);
+  ipcMain.handle('get-sessions-by-ids', handleGetSessionsByIds);
   ipcMain.handle('get-session-detail', handleGetSessionDetail);
   ipcMain.handle('get-session-groups', handleGetSessionGroups);
   ipcMain.handle('get-session-metrics', handleGetSessionMetrics);
@@ -59,6 +60,7 @@ export function registerSessionHandlers(ipcMain: IpcMain): void {
 export function removeSessionHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('get-sessions');
   ipcMain.removeHandler('get-sessions-paginated');
+  ipcMain.removeHandler('get-sessions-by-ids');
   ipcMain.removeHandler('get-session-detail');
   ipcMain.removeHandler('get-session-groups');
   ipcMain.removeHandler('get-session-metrics');
@@ -127,6 +129,58 @@ async function handleGetSessionsPaginated(
   } catch (error) {
     logger.error(`Error in get-sessions-paginated for project ${projectId}:`, error);
     return { sessions: [], nextCursor: null, hasMore: false, totalCount: 0 };
+  }
+}
+
+/**
+ * Handler for 'get-sessions-by-ids' IPC call.
+ * Fetches lightweight session metadata for specific session IDs.
+ * Used to load pinned sessions that may not be in the paginated list.
+ */
+async function handleGetSessionsByIds(
+  _event: IpcMainInvokeEvent,
+  projectId: string,
+  sessionIds: string[]
+): Promise<Session[]> {
+  try {
+    const validatedProject = validateProjectId(projectId);
+    if (!validatedProject.valid) {
+      logger.error(
+        `get-sessions-by-ids rejected: ${validatedProject.error ?? 'Invalid projectId'}`
+      );
+      return [];
+    }
+
+    if (!Array.isArray(sessionIds)) {
+      logger.error('get-sessions-by-ids rejected: sessionIds must be an array');
+      return [];
+    }
+
+    // Cap at 50 IDs
+    const capped = sessionIds.slice(0, 50);
+
+    // Validate each session ID
+    const validIds: string[] = [];
+    for (const id of capped) {
+      const validated = validateSessionId(id);
+      if (validated.valid) {
+        validIds.push(validated.value!);
+      }
+    }
+
+    if (validIds.length === 0) {
+      return [];
+    }
+
+    const { projectScanner } = registry.getActive();
+    const results = await Promise.all(
+      validIds.map((id) => projectScanner.getSession(validatedProject.value!, id))
+    );
+
+    return results.filter((s): s is Session => s !== null);
+  } catch (error) {
+    logger.error(`Error in get-sessions-by-ids for project ${projectId}:`, error);
+    return [];
   }
 }
 

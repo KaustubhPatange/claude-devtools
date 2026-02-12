@@ -294,6 +294,7 @@ export interface ElectronAPI {
     subagentId: string
   ) => Promise<SubagentDetail | null>;
   getSessionGroups: (projectId: string, sessionId: string) => Promise<ConversationGroup[]>;
+  getSessionsByIds: (projectId: string, sessionIds: string[]) => Promise<Session[]>;
 
   // Repository grouping (worktree support)
   getRepositoryGroups: () => Promise<RepositoryGroup[]>;

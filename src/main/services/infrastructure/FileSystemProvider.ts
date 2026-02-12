@@ -33,6 +33,12 @@ export interface FsDirent {
   name: string;
   isFile(): boolean;
   isDirectory(): boolean;
+  /** Optional metadata provided by some providers (e.g., SFTP readdir attrs) */
+  size?: number;
+  /** Optional mtime in milliseconds since epoch */
+  mtimeMs?: number;
+  /** Optional birthtime/ctime fallback in milliseconds since epoch */
+  birthtimeMs?: number;
 }
 
 /**

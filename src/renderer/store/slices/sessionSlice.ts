@@ -133,12 +133,17 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
         includeTotalCount: false,
         prefilterAll: false,
       });
-      set((prevState) => ({
-        sessions: [...prevState.sessions, ...result.sessions],
-        sessionsCursor: result.nextCursor,
-        sessionsHasMore: result.hasMore,
-        sessionsLoadingMore: false,
-      }));
+      set((prevState) => {
+        // Deduplicate: pinned sessions fetched earlier may appear in paginated results
+        const existingIds = new Set(prevState.sessions.map((s) => s.id));
+        const newSessions = result.sessions.filter((s) => !existingIds.has(s.id));
+        return {
+          sessions: [...prevState.sessions, ...newSessions],
+          sessionsCursor: result.nextCursor,
+          sessionsHasMore: result.hasMore,
+          sessionsLoadingMore: false,
+        };
+      });
     } catch (error) {
       set({
         sessionsError: error instanceof Error ? error.message : 'Failed to fetch more sessions',
@@ -214,9 +219,17 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
         return;
       }
 
+      // Preserve pinned sessions that are beyond page 1
+      const { pinnedSessionIds, sessions: prevSessions } = get();
+      const newPageIds = new Set(result.sessions.map((s) => s.id));
+      const pinnedSet = new Set(pinnedSessionIds);
+      const pinnedToRetain = prevSessions.filter(
+        (s) => pinnedSet.has(s.id) && !newPageIds.has(s.id)
+      );
+
       // Update sessions without loading state
       set({
-        sessions: result.sessions,
+        sessions: [...result.sessions, ...pinnedToRetain],
         sessionsCursor: result.nextCursor,
         sessionsHasMore: result.hasMore,
         sessionsTotalCount: result.totalCount,
@@ -258,6 +271,7 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
   },
 
   // Load pinned sessions from config for current project
+  // Fetches missing pinned session data that may be beyond the paginated page
   loadPinnedSessions: async () => {
     const state = get();
     const projectId = state.selectedProjectId;
@@ -269,7 +283,26 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
     try {
       const config = await api.config.get();
       const pins = config.sessions?.pinnedSessions?.[projectId] ?? [];
-      set({ pinnedSessionIds: pins.map((p) => p.sessionId) });
+      const pinnedIds = pins.map((p) => p.sessionId);
+      set({ pinnedSessionIds: pinnedIds });
+
+      // Determine which pinned sessions are missing from the loaded sessions array
+      const currentSessions = get().sessions;
+      const loadedIds = new Set(currentSessions.map((s) => s.id));
+      const missingIds = pinnedIds.filter((id) => !loadedIds.has(id));
+
+      if (missingIds.length > 0) {
+        const missingSessions = await api.getSessionsByIds(projectId, missingIds);
+        if (missingSessions.length > 0) {
+          // Re-read sessions in case they changed during the async call
+          const latestSessions = get().sessions;
+          const latestIds = new Set(latestSessions.map((s) => s.id));
+          const toAppend = missingSessions.filter((s) => !latestIds.has(s.id));
+          if (toAppend.length > 0) {
+            set({ sessions: [...latestSessions, ...toAppend] });
+          }
+        }
+      }
     } catch (error) {
       logger.error('loadPinnedSessions error:', error);
       set({ pinnedSessionIds: [] });
